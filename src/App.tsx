@@ -56,7 +56,7 @@ function App() {
       <ScrollManager />
       <a className="skip-link" href="#main-content">Skip to content</a>
       <SiteHeader />
-      <main id="main-content">
+      <main id="main-content" tabIndex={-1}>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/scam-check" element={<ScamCheckPage />} />

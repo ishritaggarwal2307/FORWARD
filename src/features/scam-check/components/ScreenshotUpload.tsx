@@ -63,7 +63,7 @@ export function ScreenshotUpload({ file, disabled, onSelect }: ScreenshotUploadP
           <span className="button button-small upload-button">Browse files</span>
         </label>
       )}
-      <p className="privacy-note"><span aria-hidden="true">◇</span> Your image is processed in this browser and is never uploaded. English OCR resources may download the first time you analyze an image.</p>
+      <p className="privacy-note"><span aria-hidden="true">◇</span> Your image is processed in this browser and is never uploaded. OCR reads English text only; its language resources may download the first time.</p>
       {error && <p className="field-error" role="alert">{error}</p>}
     </div>
   )

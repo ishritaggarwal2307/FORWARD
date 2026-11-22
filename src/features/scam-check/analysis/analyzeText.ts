@@ -60,9 +60,26 @@ const paymentRequest: TextRule = {
   strength: 'weak',
 }
 
+const giftCardPurchaseRequest: TextRule = {
+  id: 'gift-card-purchase-request',
+  pattern: /\b(?:please\s+)?(?:you\s+(?:need|must|should)\s+to\s+|i\s+need\s+you\s+to\s+|we\s+need\s+you\s+to\s+|can\s+you\s+|could\s+you\s+)?(?:buy|purchase|order|get|pick up)\b.{0,35}\bgift cards?\b/i,
+  title: 'The message asks you to buy gift cards',
+  explanation: 'Gift cards can be legitimate gifts, but requests to buy them for someone else deserve an independent check.',
+  strength: 'weak',
+}
+
 const verificationRequest = /\b(?:verify|confirm|update|review|refresh)\b.{0,45}\b(?:your\s+)?(?:account|kyc|identity|bank(?:ing)?|details?)\b|\b(?:your\s+)?(?:account|kyc|identity|bank(?:ing)?|details?)\b.{0,45}\b(?:verify|confirm|update|review|refresh)\b/i
 const urgencyPattern = /\b(?:act now|immediately|urgent(?:ly)?|final warning|expires today|within \d+ hours?|limited time|right away|today or|by midnight)\b/i
-const prizePattern = /\b(?:you(?:'|’)ve|you have) won\b|\bclaim your (?:prize|reward|gift)\b/i
+const prizePattern = /\b(?:you(?:'|’)?ve|you have) won\b|\bclaim your (?:prize|reward|gift)\b|\b(?:lottery|prize draw|sweepstakes?|raffle) winnings\b/i
+const prizeSelectionPattern = /\b(?:you have been|you(?:'|’)?ve been)\s+(?:selected|chosen)\s+(?:for|in)\s+(?:a\s+)?(?:prize draw|drawing|lottery|sweepstakes?|raffle)\b/i
+const prizeContextPattern = /\b(?:prize|lottery|sweepstakes?|raffle|winnings|reward)\b/i
+const prizeClaimActionPattern = /\b(?:register|claim|redeem|collect|receive|confirm|complete)\b/i
+const prizeFeePattern = /\b(?:pay|send|transfer|cover|submit)\b.{0,35}\b(?:processing|administrative|admin|delivery|release|claim|tax)\s+fees?\b|\b(?:processing|administrative|admin|delivery|release|claim|tax)\s+fees?\b.{0,35}\b(?:prize|lottery|winnings|reward|draw)\b/i
+const authorityPattern = /\b(?:your\s+)?(?:manager|boss|supervisor|director|executive|ceo|chief executive|owner|president)\b/i
+const giftCardMentionPattern = /\bgift cards?\b/i
+const giftCardValueRequestPattern = /\b(?:send|share|text|email|provide|give|forward|upload)\b.{0,65}\b(?:gift cards?|(?:redemption\s+)?codes?)\b|\bgift cards?\b.{0,45}\b(?:codes?|redemption codes?)\b/i
+const giftCardPhotoRequestPattern = /\b(?:send|share|text|email|provide|give|forward|upload|take)\b.{0,65}\b(?:photos?|pictures?|images?)\b.{0,45}\bgift cards?\b|\bgift cards?\b.{0,65}\b(?:photos?|pictures?|images?)\b/i
+const giftCardRequestPattern = /\b(?:buy|purchase|order|get|pick up|send|share|text|email|provide|give|forward|upload)\b.{0,65}\bgift cards?\b|\bgift cards?\b.{0,65}\b(?:codes?|redemption codes?|photos?|pictures?|images?)\b/i
 const urlPattern = /(?:https?:\/\/|www\.)[^\s<>"']+/i
 
 const detectionRules = [
@@ -72,6 +89,7 @@ const detectionRules = [
   bankingDetailsRequest,
   personalInformationRequest,
   paymentRequest,
+  giftCardPurchaseRequest,
 ] satisfies readonly TextRule[]
 
 function splitSentences(text: string): string[] {
@@ -95,7 +113,18 @@ function hasNearbyNegation(sentence: string, matchIndex: number): boolean {
   return /\b(?:never|don't|do not|shouldn't|should not|must not|avoid|not to|won't|will not|is not|isn't|not be)\b/i.test(precedingText)
 }
 
+function isIndependentOfflineInstruction(sentence: string): boolean {
+  const namesOfflineChannel = /\b(?:at|visit|go to|speak with|ask at)\b.{0,35}\b(?:nearest|local|your)?\s*(?:bank\s+)?branch\b|\b(?:in person|inside the bank|at a bank office)\b/i.test(sentence)
+  const addsOnlineOrPressure = urlPattern.test(sentence)
+    || urgencyPattern.test(sentence)
+    || accountThreat.pattern.test(sentence)
+    || authenticationRequest.pattern.test(sentence)
+
+  return namesOfflineChannel && !addsOnlineOrPressure
+}
+
 function evidenceFor(sentence: string, pattern: RegExp): string | undefined {
+  if (pattern === bankingDetailsRequest.pattern && isIndependentOfflineInstruction(sentence)) return undefined
   const globalPattern = new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`)
   for (const match of sentence.matchAll(globalPattern)) {
     if (match.index !== undefined && !hasNearbyNegation(sentence, match.index)) return match[0]
@@ -105,8 +134,10 @@ function evidenceFor(sentence: string, pattern: RegExp): string | undefined {
 
 function hasRelatedSignals(sentences: readonly string[], patterns: readonly RegExp[]): boolean {
   return sentences.some((_, index) => {
-    const nearbySentences = sentences.slice(index, index + 2).join(' ')
-    return patterns.every((pattern) => evidenceFor(nearbySentences, pattern))
+    const nearbySentences = sentences.slice(index, index + 2)
+    return patterns.every((pattern) => pattern === bankingDetailsRequest.pattern
+      ? nearbySentences.some((sentence) => evidenceFor(sentence, pattern))
+      : evidenceFor(nearbySentences.join(' '), pattern))
   })
 }
 
@@ -153,6 +184,7 @@ function addContextFindings(findings: Finding[], sentences: readonly string[], a
       || evidenceFor(sentence, bankingDetailsRequest.pattern)
       || evidenceFor(sentence, personalInformationRequest.pattern)
       || evidenceFor(sentence, authenticationRequest.pattern)
+      || evidenceFor(sentence, giftCardRequestPattern)
       || (urlPattern.test(sentence) && evidenceFor(sentence, verificationRequest))
   })
 
@@ -192,6 +224,67 @@ function addContextFindings(findings: Finding[], sentences: readonly string[], a
     })
   }
 
+  const prizeSelectionIndex = activeSentences.findIndex((_, index) => {
+    const nearbyText = activeSentences.slice(index, index + 2).join(' ')
+    return evidenceFor(nearbyText, prizeSelectionPattern) && evidenceFor(nearbyText, prizeClaimActionPattern)
+  })
+  const prizeSelectionEvidenceText = prizeSelectionIndex >= 0
+    ? activeSentences.slice(prizeSelectionIndex, prizeSelectionIndex + 2).join(' ')
+    : undefined
+  if (prizeSelectionEvidenceText && !findings.some((finding) => finding.id === 'unexpected-prize-selection')) {
+    findings.push({
+      id: 'unexpected-prize-selection',
+      title: 'The message says you were selected for a prize and asks you to register or claim it',
+      explanation: 'A personalized prize selection followed by a request to register or claim should be checked through the promotion’s official channel.',
+      strength: 'weak',
+      evidence: `${evidenceFor(prizeSelectionEvidenceText, prizeSelectionPattern)} · ${evidenceFor(prizeSelectionEvidenceText, prizeClaimActionPattern)}`,
+    })
+  }
+
+  const giftCardValueRequest = activeSentences.some((sentence) =>
+    evidenceFor(sentence, giftCardMentionPattern) && evidenceFor(sentence, giftCardValueRequestPattern),
+  )
+  const giftCardPhotoRequest = activeSentences.some((sentence) => evidenceFor(sentence, giftCardPhotoRequestPattern))
+
+  if ((giftCardValueRequest || giftCardPhotoRequest) && !findings.some((finding) => finding.id === 'gift-card-value-request')) {
+    const sentence = activeSentences.find((item) => evidenceFor(item, giftCardValueRequestPattern) || evidenceFor(item, giftCardPhotoRequestPattern))
+    findings.push({
+      id: 'gift-card-value-request',
+      title: giftCardPhotoRequest ? 'The message asks for a photo of a gift card' : 'The message asks you to share gift card codes',
+      explanation: 'A gift card code or photo can let someone redeem its value. Verify the request with the person through a separate, trusted channel.',
+      strength: 'strong',
+      evidence: sentence ? evidenceFor(sentence, giftCardValueRequestPattern) ?? evidenceFor(sentence, giftCardPhotoRequestPattern) : undefined,
+    })
+  }
+
+  const authorityGiftCardCombination = hasRelatedSignals(activeSentences, [authorityPattern, giftCardRequestPattern])
+  const urgentGiftCardValueCombination = hasRelatedSignals(activeSentences, [urgencyPattern, giftCardValueRequestPattern, giftCardMentionPattern])
+  if ((authorityGiftCardCombination || urgentGiftCardValueCombination) && !findings.some((finding) => finding.id === 'gift-card-request-combination')) {
+    findings.push({
+      id: 'gift-card-request-combination',
+      title: 'A gift card request is paired with authority pressure or urgency',
+      explanation: 'Requests to buy or transfer gift card value under time pressure or in the name of a manager can be difficult to reverse. Confirm directly with the person using a known contact method.',
+      strength: 'strong',
+      highConcernTrigger: 'contextual-combination',
+      evidence: activeSentences.filter((sentence) => evidenceFor(sentence, giftCardRequestPattern) || evidenceFor(sentence, urgencyPattern) || evidenceFor(sentence, authorityPattern)).slice(0, 2).join(' · '),
+    })
+  }
+
+  const prizeFeeCombination = hasRelatedSignals(activeSentences, [prizeContextPattern, prizeFeePattern])
+  const prizeBankingCombination = hasRelatedSignals(activeSentences, [prizeContextPattern, bankingDetailsRequest.pattern])
+  if ((prizeFeeCombination || prizeBankingCombination) && !findings.some((finding) => finding.id === 'prize-claim-payment-combination')) {
+    findings.push({
+      id: 'prize-claim-payment-combination',
+      title: prizeFeeCombination
+        ? 'A prize claim is paired with a processing or release fee'
+        : 'A prize claim is paired with a banking information request',
+      explanation: 'Requests for a fee or banking details to release a prize deserve independent verification. This pattern alone does not verify who sent the message.',
+      strength: 'strong',
+      highConcernTrigger: 'contextual-combination',
+      evidence: activeText.slice(0, 180),
+    })
+  }
+
   const prizeSentence = activeSentences.find((sentence) => evidenceFor(sentence, prizePattern))
   if (prizeSentence && !findings.some((finding) => finding.id === 'unexpected-prize')) {
     findings.push({
@@ -210,7 +303,7 @@ function buildResult(inputMode: InputMode, findings: Finding[]): AnalysisResult 
   const messages = {
     'high-concern': {
       title: 'High concern',
-      summary: 'The review found a direct request for an authentication secret or a strong combination of account, verification, and pressure indicators.',
+      summary: 'The review found a direct request for an authentication secret or a strong combination of warning signs.',
       recommendations: [
         'Do not click links, reply, or share passwords, codes, or payment details.',
         'Contact the organisation using a number or website you already know is genuine.',

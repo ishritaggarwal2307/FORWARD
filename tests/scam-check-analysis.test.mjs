@@ -7,6 +7,8 @@ import {
   analyzeScreenshot,
 } from '../src/features/scam-check/analysis/analyzeScreenshot.ts'
 
+const readableImageInspector = async () => ({ width: 800, height: 600 })
+
 test('direct OTP request is high concern and includes explainable evidence', () => {
   const result = analyzeMessage('Your account is locked. Send your verification code immediately.')
 
@@ -60,6 +62,111 @@ test('legitimate KYC reminder is not elevated to high concern', () => {
   const result = analyzeMessage('A reminder: please complete your KYC verification at your next branch visit. No online action is required.')
 
   assert.notEqual(result.riskLevel, 'high-concern')
+  assert.ok(!result.findings.some((finding) => finding.id === 'account-verification-combination'))
+})
+
+test('gift card purchase and code-sharing request from a manager is high concern', () => {
+  const result = analyzeMessage('Your manager needs you to buy gift cards and send the codes.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'gift-card-purchase-request' && finding.strength === 'weak'))
+  assert.ok(result.findings.some((finding) => finding.id === 'gift-card-value-request' && finding.strength === 'strong'))
+  assert.ok(result.findings.some((finding) => finding.id === 'gift-card-request-combination' && finding.highConcernTrigger === 'contextual-combination'))
+})
+
+test('gift card purchase request without authority or urgency is a warning, not high concern', () => {
+  const result = analyzeMessage('Please buy gift cards for the office thank-you event.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'gift-card-purchase-request'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'gift-card-request-combination'))
+})
+
+test('request for gift card photos identifies transferable value', () => {
+  const result = analyzeMessage('Please send a photo of the gift cards and their redemption codes.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'gift-card-value-request' && finding.strength === 'strong'))
+})
+
+test('urgent gift card code transfer is high concern', () => {
+  const result = analyzeMessage('Buy gift cards immediately and send me the redemption codes right away.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'contextual-urgency'))
+  assert.ok(result.findings.some((finding) => finding.id === 'gift-card-request-combination'))
+})
+
+test('educational and ordinary gift card discussions do not trigger scam findings', () => {
+  const educational = analyzeMessage('Scam awareness: scammers may ask you to buy gift cards and share the codes.')
+  const ordinary = analyzeMessage('I bought gift cards for my nieces last weekend.')
+  const generalDiscussion = analyzeMessage('Gift cards are popular birthday presents and easy to wrap.')
+
+  assert.equal(educational.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(educational.findings.length, 0)
+  assert.equal(ordinary.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(ordinary.findings.length, 0)
+  assert.equal(generalDiscussion.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(generalDiscussion.findings.length, 0)
+})
+
+test('unexpected prize selection with a registration request is a weak warning', () => {
+  const result = analyzeMessage('You have been selected for a prize draw; register to learn more.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'unexpected-prize-selection' && finding.strength === 'weak'))
+})
+
+test('general promotional prize announcement is not automatically suspicious', () => {
+  const result = analyzeMessage('Join our summer prize draw. Register today for a chance to win a gift card.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'unexpected-prize-selection'))
+})
+
+test('prize processing fee request creates a high-concern combination', () => {
+  const result = analyzeMessage('Pay a processing fee to claim your lottery winnings.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'prize-claim-payment-combination'))
+})
+
+test('banking information requested to claim a prize is high concern', () => {
+  const result = analyzeMessage('You won a prize. Update your banking information to receive your reward.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'banking-details-request'))
+  assert.ok(result.findings.some((finding) => finding.id === 'prize-claim-payment-combination'))
+})
+
+test('routine bank branch instruction is not a warning', () => {
+  const result = analyzeMessage('Please update your banking information at your nearest branch.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'banking-details-request'))
+})
+
+test('banking information requested through an unexpected link remains a warning', () => {
+  const result = analyzeMessage('Please update your banking information using this link https://bank.example/update.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'banking-details-request'))
+  assert.ok(result.findings.some((finding) => finding.id === 'verification-link-with-request'))
+})
+
+test('urgency with a banking information request raises warning signs', () => {
+  const result = analyzeMessage('Update your banking information immediately.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'banking-details-request'))
+  assert.ok(result.findings.some((finding) => finding.id === 'contextual-urgency'))
+})
+
+test('account threat with an offline branch instruction does not become a strong banking combination', () => {
+  const result = analyzeMessage('Your account will be blocked. Update your banking information at your nearest branch.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'account-access-threat'))
   assert.ok(!result.findings.some((finding) => finding.id === 'account-verification-combination'))
 })
 
@@ -227,6 +334,8 @@ test('malformed and unsupported scheme URLs are inconclusive', () => {
 
 test('insufficient screenshot OCR text returns inconclusive', () => {
   assert.equal(analyzeExtractedScreenshotText('Hi, click.').riskLevel, 'inconclusive')
+  assert.equal(analyzeExtractedScreenshotText('   ').riskLevel, 'inconclusive')
+  assert.equal(analyzeExtractedScreenshotText('').riskLevel, 'inconclusive')
 })
 
 test('readable screenshot OCR text uses message checks and adds OCR limitations', () => {
@@ -235,6 +344,14 @@ test('readable screenshot OCR text uses message checks and adds OCR limitations'
   assert.equal(result.inputMode, 'screenshot')
   assert.equal(result.riskLevel, 'high-concern')
   assert.ok(result.limitations.some((limitation) => /English OCR/.test(limitation)))
+  assert.ok(result.limitations.some((limitation) => /not a scam-risk score/i.test(limitation)))
+})
+
+test('low-confidence and garbled OCR extraction are inconclusive', () => {
+  const readableText = 'Please send your one-time code immediately to restore access to your account.'
+
+  assert.equal(analyzeExtractedScreenshotText(readableText, 20).riskLevel, 'inconclusive')
+  assert.equal(analyzeExtractedScreenshotText('@@@ ### %%% !!! &&& *** ??? ###', 90).riskLevel, 'inconclusive')
 })
 
 test('screenshot OCR receives the in-memory file, reports progress, and terminates its worker', async () => {
@@ -242,12 +359,12 @@ test('screenshot OCR receives the in-memory file, reports progress, and terminat
   const progress = []
   let receivedImage
   let terminated = false
-  const result = await analyzeScreenshot(image, (value) => progress.push(value), { workerFactory: async (logger) => {
+  const result = await analyzeScreenshot(image, (value) => progress.push(value), { imageInspector: readableImageInspector, workerFactory: async (logger) => {
     logger({ status: 'recognizing text', progress: 1.4 })
     return {
       recognize: async (input) => {
         receivedImage = input
-        return { data: { text: 'Please send your one-time code immediately to restore access to your account.' } }
+        return { data: { text: 'Please send your one-time code immediately to restore access to your account.', confidence: 92 } }
       },
       terminate: async () => { terminated = true },
     }
@@ -257,12 +374,13 @@ test('screenshot OCR receives the in-memory file, reports progress, and terminat
   assert.equal(result.riskLevel, 'high-concern')
   assert.deepEqual(progress, [{ stage: 'recognizing', progress: 1 }])
   assert.equal(terminated, true)
+  assert.ok(!Object.values(result).includes(image))
 })
 
 test('unreadable screenshot OCR returns inconclusive and releases its worker', async () => {
   const image = new File(['image bytes'], 'blank.png', { type: 'image/png' })
   let terminated = false
-  const result = await analyzeScreenshot(image, () => {}, { workerFactory: async () => ({
+  const result = await analyzeScreenshot(image, () => {}, { imageInspector: readableImageInspector, workerFactory: async () => ({
     recognize: async () => ({ data: { text: '   ' } }),
     terminate: async () => { terminated = true },
   }) })
@@ -273,12 +391,24 @@ test('unreadable screenshot OCR returns inconclusive and releases its worker', a
 
 test('OCR setup failure returns inconclusive instead of fabricated results', async () => {
   const image = new File(['image bytes'], 'message.png', { type: 'image/png' })
-  const result = await analyzeScreenshot(image, () => {}, { workerFactory: async () => {
+  const result = await analyzeScreenshot(image, () => {}, { imageInspector: readableImageInspector, workerFactory: async () => {
     throw new Error('OCR resources unavailable')
   } })
 
   assert.equal(result.riskLevel, 'inconclusive')
   assert.match(result.summary, /could not be read/i)
+})
+
+test('OCR recognition errors terminate the worker and return inconclusive', async () => {
+  const image = new File(['image bytes'], 'message.png', { type: 'image/png' })
+  let terminated = false
+  const result = await analyzeScreenshot(image, () => {}, { imageInspector: readableImageInspector, workerFactory: async () => ({
+    recognize: async () => { throw new Error('Recognition failed') },
+    terminate: async () => { terminated = true },
+  }) })
+
+  assert.equal(result.riskLevel, 'inconclusive')
+  assert.equal(terminated, true)
 })
 
 test('unsupported and oversized image files are rejected before OCR starts', async () => {
@@ -290,9 +420,51 @@ test('unsupported and oversized image files are rejected before OCR starts', asy
   const wrongType = new File(['text'], 'note.txt', { type: 'text/plain' })
   const tooLarge = new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'large.png', { type: 'image/png' })
 
-  assert.equal((await analyzeScreenshot(wrongType, () => {}, { workerFactory })).riskLevel, 'inconclusive')
-  assert.equal((await analyzeScreenshot(tooLarge, () => {}, { workerFactory })).riskLevel, 'inconclusive')
+  assert.equal((await analyzeScreenshot(wrongType, () => {}, { imageInspector: readableImageInspector, workerFactory })).riskLevel, 'inconclusive')
+  assert.equal((await analyzeScreenshot(tooLarge, () => {}, { imageInspector: readableImageInspector, workerFactory })).riskLevel, 'inconclusive')
   assert.equal(workerStarted, false)
+})
+
+test('small, huge, and corrupted images are rejected before worker initialization', async () => {
+  const image = new File(['image bytes'], 'message.png', { type: 'image/png' })
+  let workerStarted = false
+  const workerFactory = async () => {
+    workerStarted = true
+    throw new Error('Should not initialize')
+  }
+  const tooSmall = await analyzeScreenshot(image, () => {}, {
+    imageInspector: async () => ({ width: 239, height: 600 }), workerFactory,
+  })
+  const tooLargeInPixels = await analyzeScreenshot(image, () => {}, {
+    imageInspector: async () => ({ width: 6000, height: 5000 }), workerFactory,
+  })
+  const corrupted = await analyzeScreenshot(image, () => {}, {
+    imageInspector: async () => { throw new Error('Invalid image data') }, workerFactory,
+  })
+
+  assert.equal(tooSmall.riskLevel, 'inconclusive')
+  assert.equal(tooLargeInPixels.riskLevel, 'inconclusive')
+  assert.equal(corrupted.riskLevel, 'inconclusive')
+  assert.equal(workerStarted, false)
+})
+
+test('image dimension boundaries are accepted and rejected consistently', async () => {
+  const image = new File(['image bytes'], 'message.png', { type: 'image/png' })
+  let workerTerminated = false
+  const workerFactory = async () => ({
+    recognize: async () => ({ data: { text: 'This is ordinary readable screenshot content for our test.', confidence: 80 } }),
+    terminate: async () => { workerTerminated = true },
+  })
+  const boundary = await analyzeScreenshot(image, () => {}, {
+    imageInspector: async () => ({ width: 240, height: 120 }), workerFactory,
+  })
+  const onePixelBelow = await analyzeScreenshot(image, () => {}, {
+    imageInspector: async () => ({ width: 240, height: 119 }), workerFactory,
+  })
+
+  assert.equal(boundary.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(onePixelBelow.riskLevel, 'inconclusive')
+  assert.equal(workerTerminated, true)
 })
 
 test('cancelled screenshot analysis terminates its worker', async () => {
@@ -302,6 +474,7 @@ test('cancelled screenshot analysis terminates its worker', async () => {
   const pendingRecognition = new Promise(() => {})
   const resultPromise = analyzeScreenshot(image, () => {}, {
     signal: controller.signal,
+    imageInspector: readableImageInspector,
     workerFactory: async () => ({
       recognize: async () => pendingRecognition,
       terminate: async () => {
@@ -313,6 +486,28 @@ test('cancelled screenshot analysis terminates its worker', async () => {
   await new Promise((resolve) => setImmediate(resolve))
   controller.abort()
   const result = await resultPromise
+
+  assert.equal(result.riskLevel, 'inconclusive')
+  assert.match(result.summary, /stopped/i)
+  assert.equal(terminated, true)
+})
+
+test('cancellation during worker initialization terminates the worker when it becomes available', async () => {
+  const image = new File(['image bytes'], 'message.png', { type: 'image/png' })
+  const controller = new AbortController()
+  let resolveWorker
+  let terminated = false
+  const resultPromise = analyzeScreenshot(image, () => {}, {
+    signal: controller.signal,
+    imageInspector: readableImageInspector,
+    workerFactory: () => new Promise((resolve) => { resolveWorker = resolve }),
+  })
+
+  await new Promise((resolve) => setImmediate(resolve))
+  controller.abort()
+  const result = await resultPromise
+  resolveWorker({ recognize: async () => ({ data: { text: '' } }), terminate: async () => { terminated = true } })
+  await new Promise((resolve) => setImmediate(resolve))
 
   assert.equal(result.riskLevel, 'inconclusive')
   assert.match(result.summary, /stopped/i)

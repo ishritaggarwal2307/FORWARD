@@ -3,10 +3,19 @@ import { createInconclusiveResult } from './results.ts'
 import type { AnalysisResult, OcrProgress } from './types.ts'
 
 const minimumUsefulCharacters = 18
+const minimumOcrConfidence = 35
 const maximumImageBytes = 10 * 1024 * 1024
+const minimumImageWidth = 240
+const minimumImageHeight = 120
+const maximumImagePixels = 24_000_000
+const supportedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
+
+interface OcrRecognition {
+  data: { text: string; confidence?: number }
+}
 
 interface OcrWorker {
-  recognize(image: File): Promise<{ data: { text: string } }>
+  recognize(image: File): Promise<OcrRecognition>
   terminate(): Promise<unknown>
 }
 
@@ -15,10 +24,17 @@ interface OcrLogMessage {
   progress: number
 }
 
+interface ImageDimensions {
+  width: number
+  height: number
+}
+
 type OcrWorkerFactory = (logger: (message: OcrLogMessage) => void) => Promise<OcrWorker>
+type ImageInspector = (image: File) => Promise<ImageDimensions>
 
 interface ScreenshotAnalysisOptions {
   workerFactory?: OcrWorkerFactory
+  imageInspector?: ImageInspector
   signal?: AbortSignal
 }
 
@@ -27,15 +43,41 @@ const createLocalOcrWorker: OcrWorkerFactory = async (logger) => {
   return createWorker('eng', 1, { logger })
 }
 
-export function analyzeExtractedScreenshotText(text: string): AnalysisResult {
+async function inspectImageDimensions(image: File): Promise<ImageDimensions> {
+  if (typeof createImageBitmap !== 'function') {
+    throw new Error('Image decoding is not available in this browser.')
+  }
+
+  const bitmap = await createImageBitmap(image)
+  try {
+    return { width: bitmap.width, height: bitmap.height }
+  } finally {
+    bitmap.close()
+  }
+}
+
+function inconclusiveImage(reason: string) {
+  return createInconclusiveResult('screenshot', reason)
+}
+
+export function analyzeExtractedScreenshotText(text: string, ocrConfidence?: number): AnalysisResult {
   const extractedText = text.trim()
   const meaningfulCharacters = extractedText.replace(/\s/g, '').length
   const wordCount = extractedText.match(/[\p{L}\p{N}]{2,}/gu)?.length ?? 0
+  const nonWhitespaceCharacters = [...extractedText].filter((character) => !/\s/u.test(character))
+  const readableCharacters = nonWhitespaceCharacters.filter((character) => /[\p{L}\p{N}]/u.test(character)).length
+  const garbledRatio = nonWhitespaceCharacters.length > 0
+    ? 1 - readableCharacters / nonWhitespaceCharacters.length
+    : 1
 
-  if (meaningfulCharacters < minimumUsefulCharacters || wordCount < 3) {
-    return createInconclusiveResult(
-      'screenshot',
-      'We could not read enough text to review this image. Try a sharper, well-lit screenshot that includes the full message.',
+  if (
+    meaningfulCharacters < minimumUsefulCharacters
+    || wordCount < 3
+    || garbledRatio > 0.35
+    || (ocrConfidence !== undefined && (!Number.isFinite(ocrConfidence) || ocrConfidence < minimumOcrConfidence))
+  ) {
+    return inconclusiveImage(
+      'The screenshot text could not be read reliably enough to review. Try a clearer, sharper image with the full message visible.',
     )
   }
 
@@ -45,7 +87,7 @@ export function analyzeExtractedScreenshotText(text: string): AnalysisResult {
     inputMode: 'screenshot',
     limitations: [
       ...textResult.limitations,
-      'Text was extracted with English OCR, which can miss or misread small, stylized, low-contrast, or handwritten text.',
+      'Text was extracted with English OCR. Small, stylized, low-contrast, handwritten, or non-English text may be missed or misread. OCR readability is not a scam-risk score.',
     ],
   }
 }
@@ -53,69 +95,88 @@ export function analyzeExtractedScreenshotText(text: string): AnalysisResult {
 export async function analyzeScreenshot(
   image: File,
   onProgress: (progress: OcrProgress) => void,
-  { workerFactory = createLocalOcrWorker, signal }: ScreenshotAnalysisOptions = {},
+  { workerFactory = createLocalOcrWorker, imageInspector = inspectImageDimensions, signal }: ScreenshotAnalysisOptions = {},
 ): Promise<AnalysisResult> {
   if (signal?.aborted) {
-    return createInconclusiveResult('screenshot', 'This review was stopped. Choose the screenshot again when you are ready.')
+    return inconclusiveImage('This review was stopped. Choose the screenshot again when you are ready.')
   }
-  if (!image.type.startsWith('image/') || image.size === 0 || image.size > maximumImageBytes) {
-    return createInconclusiveResult('screenshot', 'Choose a supported image under 10 MB to review.')
+  if (!supportedImageTypes.has(image.type) || image.size === 0 || image.size > maximumImageBytes) {
+    return inconclusiveImage('Choose a JPG, PNG, or WebP image under 10 MB to review.')
+  }
+
+  try {
+    const dimensions = await imageInspector(image)
+    if (signal?.aborted) {
+      return inconclusiveImage('This review was stopped. Choose the screenshot again when you are ready.')
+    }
+    if (
+      dimensions.width < minimumImageWidth
+      || dimensions.height < minimumImageHeight
+      || dimensions.width * dimensions.height > maximumImagePixels
+    ) {
+      return inconclusiveImage('This image is too small or too large in pixel dimensions to review reliably. Choose a clearer screenshot.')
+    }
+  } catch {
+    if (signal?.aborted) {
+      return inconclusiveImage('This review was stopped. Choose the screenshot again when you are ready.')
+    }
+    return inconclusiveImage('This image could not be decoded. It may be damaged or use an unsupported image encoding.')
   }
 
   let worker: OcrWorker | undefined
   let workerTerminated = false
-  let cancelRecognition: (() => void) | undefined
-  const terminateWorker = async () => {
-    if (worker && !workerTerminated) {
+  let cancelOperation: (() => void) | undefined
+  const cancelled = new Promise<null>((resolve) => {
+    cancelOperation = () => resolve(null)
+  })
+
+  const terminateWorker = async (target: OcrWorker | undefined = worker) => {
+    if (target && !workerTerminated) {
       workerTerminated = true
-      await worker.terminate()
+      await target.terminate()
     }
   }
-  const stopWorker = () => {
+
+  const onAbort = () => {
+    cancelOperation?.()
     void terminateWorker().catch(() => undefined)
-    cancelRecognition?.()
   }
+
+  signal?.addEventListener('abort', onAbort, { once: true })
 
   try {
-    worker = await workerFactory((message) => {
-      const { status, progress } = message
-      const stage = /recogniz|segment/i.test(status) ? 'recognizing' : 'loading'
-      onProgress({ stage, progress: Math.max(0, Math.min(1, progress)) })
+    const workerPromise = workerFactory((message) => {
+      const stage = /recogniz|segment/i.test(message.status) ? 'recognizing' : 'loading'
+      onProgress({ stage, progress: Math.max(0, Math.min(1, message.progress)) })
     })
 
-    signal?.addEventListener('abort', stopWorker, { once: true })
-    if (signal?.aborted) {
-      await terminateWorker()
-      return createInconclusiveResult('screenshot', 'This review was stopped. Choose the screenshot again when you are ready.')
+    // If initialization completes after cancellation, still terminate that late-created worker.
+    void workerPromise.then((createdWorker) => {
+      if (signal?.aborted) void terminateWorker(createdWorker).catch(() => undefined)
+    }).catch(() => undefined)
+
+    const initializedWorker = signal ? await Promise.race([workerPromise, cancelled]) : await workerPromise
+    if (!initializedWorker || signal?.aborted) {
+      if (initializedWorker) await terminateWorker(initializedWorker).catch(() => undefined)
+      return inconclusiveImage('This review was stopped. Choose the screenshot again when you are ready.')
     }
+    worker = initializedWorker
 
     const recognition = worker.recognize(image)
-    const response = signal
-      ? await Promise.race([
-          recognition,
-          new Promise<null>((resolve) => { cancelRecognition = () => resolve(null) }),
-        ])
-      : await recognition
-    cancelRecognition = undefined
-    if (!response) {
-      return createInconclusiveResult('screenshot', 'This review was stopped. Choose the screenshot again when you are ready.')
+    const response = signal ? await Promise.race([recognition, cancelled]) : await recognition
+    if (!response || signal?.aborted) {
+      return inconclusiveImage('This review was stopped. Choose the screenshot again when you are ready.')
     }
 
-    const { data } = response
-    if (signal?.aborted) {
-      return createInconclusiveResult('screenshot', 'This review was stopped. Choose the screenshot again when you are ready.')
-    }
-    return analyzeExtractedScreenshotText(data.text)
+    return analyzeExtractedScreenshotText(response.data.text, response.data.confidence)
   } catch {
     if (signal?.aborted) {
-      return createInconclusiveResult('screenshot', 'This review was stopped. Choose the screenshot again when you are ready.')
+      return inconclusiveImage('This review was stopped. Choose the screenshot again when you are ready.')
     }
-    return createInconclusiveResult(
-      'screenshot',
-      'The image could not be read. Check your connection for the first-time OCR setup, then try a clearer image.',
-    )
+    return inconclusiveImage('The image could not be read. Check your connection for the first-time English OCR setup, then try a clearer image.')
   } finally {
-    signal?.removeEventListener('abort', stopWorker)
+    signal?.removeEventListener('abort', onAbort)
+    cancelOperation = undefined
     await terminateWorker().catch(() => undefined)
   }
 }
