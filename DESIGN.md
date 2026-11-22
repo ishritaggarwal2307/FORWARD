@@ -22,4 +22,8 @@ The palette, type stacks, content width, borders, focus, scrollbar, and reduced-
 
 ## Interaction and accessibility
 
-Use semantic links for navigation, maintain visible keyboard focus, provide a skip link, and retain the native disclosure behavior for the narrow-screen menu. Feature CTAs lead to the shared coming-soon notice until those experiences exist. Honor `prefers-reduced-motion`; use `#home`, `#scam-check`, `#scam-arena`, and `#family-shield` as stable section targets.
+Use semantic links for navigation, maintain visible keyboard focus, provide a skip link, and retain the native disclosure behavior for the narrow-screen menu. Homepage feature CTAs navigate to `/scam-check`, `/scam-arena`, and `/family-shield`. Honor `prefers-reduced-motion`; keep `/#about` as the homepage About anchor.
+
+## Scam Check product surface
+
+The `/scam-check` route reuses the homepage header, footer, palette, typography, square corners, and restrained borders. Keep its input method, analysis, and result components inside `src/features/scam-check/`; keep rules and result types separate from UI. Risk wording must stay explainable, avoid accuracy scores, and never imply that no detected signals means safe. Screenshot OCR is English-only and local to the browser; selected image data is cleared after review, reset, or route exit. Tesseract may fetch its runtime and language data on first use, but the screenshot itself is not uploaded.
