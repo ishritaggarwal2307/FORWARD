@@ -1,7 +1,15 @@
-import type { AnalysisResult, InputMode } from './types.ts'
+import type { AnalysisResult, Finding, InputMode, RiskLevel } from './types.ts'
 
 export const analysisLimitation =
-  'This is a local, rule-based review. It does not check live threat databases, verify who sent the content, or prove that a message or link is safe.'
+  'This is a local, English-language rule-based review. It can miss paraphrases and context, and can flag legitimate messages. It does not check live threat databases, verify who sent the content, or prove that a message or link is safe.'
+
+export function classifyRisk(findings: readonly Finding[]): RiskLevel {
+  if (findings.some((finding) => finding.highConcernTrigger)) return 'high-concern'
+  if (findings.some((finding) => finding.strength === 'strong' || finding.strength === 'weak')) {
+    return 'some-warning-signs'
+  }
+  return 'no-obvious-warning-signs'
+}
 
 export function createInconclusiveResult(inputMode: InputMode, reason: string): AnalysisResult {
   return {

@@ -30,14 +30,14 @@ function AnalysisResults({ result, onReset }: { result: AnalysisResult; onReset:
       </div>
 
       <section className="result-section" aria-labelledby="findings-title">
-        <div className="result-section-heading"><p className="result-eyebrow">WHAT WE NOTICED</p><h3 id="findings-title">Warning signs</h3></div>
+        <div className="result-section-heading"><p className="result-eyebrow">WHAT WE NOTICED</p><h3 id="findings-title">Signals we noticed</h3></div>
         {result.findings.length > 0 ? (
           <ul className="finding-list">
             {result.findings.map((finding) => (
               <li className="finding" key={finding.id}>
-                <span className={`finding-marker severity-${finding.severity}`} aria-hidden="true">{finding.severity === 'high' ? '!' : 'i'}</span>
+                <span className={`finding-marker strength-${finding.strength}`} aria-hidden="true">{finding.strength === 'strong' ? '!' : finding.strength === 'weak' ? '·' : 'i'}</span>
                 <div>
-                  <div className="finding-title-row"><h4>{finding.title}</h4><span>{finding.severity === 'high' ? 'HIGH CONCERN' : finding.severity === 'moderate' ? 'CHECK THIS' : 'NOTICE'}</span></div>
+                  <div className="finding-title-row"><h4>{finding.title}</h4><span>{finding.strength === 'strong' ? 'STRONG INDICATOR' : finding.strength === 'weak' ? 'WEAK INDICATOR' : 'INFORMATIONAL'}</span></div>
                   <p>{finding.explanation}</p>
                   {finding.evidence && <blockquote>“{finding.evidence}”</blockquote>}
                 </div>

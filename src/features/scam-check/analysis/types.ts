@@ -6,13 +6,15 @@ export type RiskLevel =
   | 'inconclusive'
   | 'no-obvious-warning-signs'
 
-export type FindingSeverity = 'high' | 'moderate' | 'informational'
+export type FindingStrength = 'informational' | 'weak' | 'strong'
+export type HighConcernTrigger = 'direct-authentication' | 'contextual-combination'
 
 export interface Finding {
   id: string
   title: string
   explanation: string
-  severity: FindingSeverity
+  strength: FindingStrength
+  highConcernTrigger?: HighConcernTrigger
   evidence?: string
 }
 

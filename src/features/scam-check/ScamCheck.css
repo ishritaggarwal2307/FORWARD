@@ -90,7 +90,7 @@
 .finding-list, .recommendations ul { display: grid; gap: 0; margin: 17px 0 0; padding: 0; list-style: none; }
 .finding { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding: 16px 0; border-top: 1px solid var(--line); }
 .finding-marker { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid #6d7686; color: var(--white); font: 11px var(--mono); }
-.finding-marker.severity-high { border-color: var(--lime); color: var(--lime); }
+.finding-marker.strength-strong { border-color: var(--lime); color: var(--lime); }
 .finding-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .finding-title-row h4 { margin: 0; color: var(--white); font: 600 13px/1.5 var(--display); }
 .finding-title-row > span { flex: 0 0 auto; color: #aab1bd; font: 8px var(--mono); letter-spacing: .06em; }
