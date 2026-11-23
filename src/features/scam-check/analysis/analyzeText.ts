@@ -93,24 +93,27 @@ const detectionRules = [
 ] satisfies readonly TextRule[]
 
 function splitSentences(text: string): string[] {
-  return text.split(/(?:[.!?;]+\s+|\r?\n+)/u).map((sentence) => sentence.trim()).filter(Boolean)
+  return text
+    .split(/(?:[.!?;]+\s+|\r?\n+|\s+\b(?:but|however|instead|yet)\b\s+)/iu)
+    .map((sentence) => sentence.trim().replace(/^[“"'‘]|[”"'’]$/gu, '').trim())
+    .filter(Boolean)
 }
 
 function isSafetyOrEducationalContext(sentence: string): boolean {
   const trimmed = sentence.trim()
-  const isQuotedExample = /^(?:[“"'‘]).*(?:[”"'’])$/u.test(trimmed)
-  const isReportedQuote = /^.*\b(?:said|says|reads|read|message|text|email)\s*:\s*[“"'‘].*(?:[”"'’])/iu.test(trimmed)
-  return isQuotedExample
-    || isReportedQuote
-    || /^\s*(?:never|don't|do not|avoid|be careful|beware|watch out|remember not to)\b/i.test(sentence)
+  const isReportedQuote = /\b(?:said|says|reads|read)\s*:\s*[“"'‘]/iu.test(trimmed)
+  const isQuotedDiscussion = /[“"'‘][^”"'’]+[”"'’]/u.test(trimmed)
+    && /\b(?:looks? suspicious|is suspicious|is an example|is a scam|is phishing|was a scam|is being discussed)\b/i.test(trimmed)
+  return isReportedQuote
+    || isQuotedDiscussion
     || /\b(?:be careful|beware|watch out)\s+of\s+(?:these\s+)?(?:scam\s+)?(?:messages|texts|emails)\b/i.test(sentence)
     || /\b(?:example\s+(?:of\s+(?:a\s+)?)?(?:scam|phishing|fraud)|(?:scam|phishing|fraud)\s+awareness|educational\s+(?:example|warning)|warning\s+about\s+(?:scams?|phishing|fraud))\b/i.test(sentence)
     || /\b(?:scammers?|fraudsters?)\s+(?:may|might|often|will)\s+ask\b/i.test(sentence)
 }
 
 function hasNearbyNegation(sentence: string, matchIndex: number): boolean {
-  const precedingText = sentence.slice(Math.max(0, matchIndex - 75), matchIndex)
-  return /\b(?:never|don't|do not|shouldn't|should not|must not|avoid|not to|won't|will not|is not|isn't|not be)\b/i.test(precedingText)
+  const precedingText = sentence.slice(Math.max(0, matchIndex - 32), matchIndex)
+  return /\b(?:never|don't|do not|shouldn't|should not|must not|avoid|not to|won't|will not|is not|isn't|not be)\s+(?:(?:you|we|they)\s+)?(?:please\s+)?$/i.test(precedingText)
 }
 
 function isIndependentOfflineInstruction(sentence: string): boolean {
@@ -133,11 +136,13 @@ function evidenceFor(sentence: string, pattern: RegExp): string | undefined {
 }
 
 function hasRelatedSignals(sentences: readonly string[], patterns: readonly RegExp[]): boolean {
-  return sentences.some((_, index) => {
-    const nearbySentences = sentences.slice(index, index + 2)
-    return patterns.every((pattern) => pattern === bankingDetailsRequest.pattern
-      ? nearbySentences.some((sentence) => evidenceFor(sentence, pattern))
-      : evidenceFor(nearbySentences.join(' '), pattern))
+  if (sentences.some((sentence) => patterns.every((pattern) => evidenceFor(sentence, pattern)))) return true
+
+  return sentences.some((sentence, index) => {
+    const nextSentence = sentences[index + 1]
+    if (!nextSentence) return false
+    const linked = /\b(?:because|therefore|so|otherwise|unless|as a result|to avoid|to prevent|if\s+.{1,40}\s+then)\b/i.test(`${sentence} ${nextSentence}`)
+    return linked && patterns.every((pattern) => evidenceFor(sentence, pattern) || evidenceFor(nextSentence, pattern))
   })
 }
 
@@ -257,13 +262,19 @@ function addContextFindings(findings: Finding[], sentences: readonly string[], a
     })
   }
 
-  const authorityGiftCardCombination = hasRelatedSignals(activeSentences, [authorityPattern, giftCardRequestPattern])
-  const urgentGiftCardValueCombination = hasRelatedSignals(activeSentences, [urgencyPattern, giftCardValueRequestPattern, giftCardMentionPattern])
-  if ((authorityGiftCardCombination || urgentGiftCardValueCombination) && !findings.some((finding) => finding.id === 'gift-card-request-combination')) {
+  const giftCardValueSentences = activeSentences.filter((sentence) =>
+    evidenceFor(sentence, giftCardMentionPattern) && evidenceFor(sentence, giftCardValueRequestPattern),
+  )
+  const authorityGiftCardCombination = giftCardValueSentences.some((sentence) => evidenceFor(sentence, authorityPattern))
+  const urgentGiftCardValueCombination = giftCardValueSentences.some((sentence) => evidenceFor(sentence, urgencyPattern))
+  const secretGiftCardValueCombination = giftCardValueSentences.some((sentence) =>
+    /\b(?:keep|keeping|kept)\b.{0,35}\b(?:secret|confidential|quiet|between us)\b|\bdon't tell\b/i.test(sentence),
+  )
+  if ((authorityGiftCardCombination || urgentGiftCardValueCombination || secretGiftCardValueCombination) && !findings.some((finding) => finding.id === 'gift-card-request-combination')) {
     findings.push({
       id: 'gift-card-request-combination',
-      title: 'A gift card request is paired with authority pressure or urgency',
-      explanation: 'Requests to buy or transfer gift card value under time pressure or in the name of a manager can be difficult to reverse. Confirm directly with the person using a known contact method.',
+      title: 'A gift card value transfer is paired with added pressure',
+      explanation: 'A request to transfer gift card value combined with authority, urgency, or secrecy deserves an independent check. Confirm directly with the person using a known contact method.',
       strength: 'strong',
       highConcernTrigger: 'contextual-combination',
       evidence: activeSentences.filter((sentence) => evidenceFor(sentence, giftCardRequestPattern) || evidenceFor(sentence, urgencyPattern) || evidenceFor(sentence, authorityPattern)).slice(0, 2).join(' · '),

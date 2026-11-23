@@ -82,6 +82,14 @@ test('gift card purchase request without authority or urgency is a warning, not 
   assert.ok(!result.findings.some((finding) => finding.id === 'gift-card-request-combination'))
 })
 
+test('a workplace gift-card purchase without value transfer is not high concern', () => {
+  const result = analyzeMessage('Your manager asked me to buy gift cards for the office event.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'gift-card-purchase-request'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'gift-card-request-combination'))
+})
+
 test('request for gift card photos identifies transferable value', () => {
   const result = analyzeMessage('Please send a photo of the gift cards and their redemption codes.')
 
@@ -94,6 +102,14 @@ test('urgent gift card code transfer is high concern', () => {
 
   assert.equal(result.riskLevel, 'high-concern')
   assert.ok(result.findings.some((finding) => finding.id === 'contextual-urgency'))
+  assert.ok(result.findings.some((finding) => finding.id === 'gift-card-request-combination'))
+})
+
+test('a secret gift-card code transfer is high concern', () => {
+  const result = analyzeMessage('Please buy gift cards and send the redemption codes while keeping this request confidential.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'gift-card-value-request'))
   assert.ok(result.findings.some((finding) => finding.id === 'gift-card-request-combination'))
 })
 
@@ -170,6 +186,24 @@ test('account threat with an offline branch instruction does not become a strong
   assert.ok(!result.findings.some((finding) => finding.id === 'account-verification-combination'))
 })
 
+test('routine account maintenance and a trusted-app update are not high concern', () => {
+  const result = analyzeMessage('Your account will be temporarily locked for scheduled maintenance. Update your banking information in our secure app when service resumes.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'account-access-threat'))
+  assert.ok(result.findings.some((finding) => finding.id === 'banking-details-request'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'account-verification-combination'))
+})
+
+test('unrelated account-threat and banking-update sentences do not combine into high concern', () => {
+  const result = analyzeMessage('Your bank account will be blocked next month. Separately, update banking information for payroll using the company app.')
+
+  assert.notEqual(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'account-access-threat'))
+  assert.ok(result.findings.some((finding) => finding.id === 'banking-details-request'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'account-verification-combination'))
+})
+
 test('routine bank account notification is not elevated by account terminology alone', () => {
   const result = analyzeMessage('Your monthly account statement is ready to view in the bank app.')
 
@@ -191,11 +225,55 @@ test('quoted scam text is treated as an example, not an active request', () => {
   assert.equal(result.findings.length, 0)
 })
 
+test('inline quoted scam wording in a discussion is not treated as an active request', () => {
+  const result = analyzeMessage('The text "send your OTP immediately" looks suspicious.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(result.findings.length, 0)
+})
+
+test('a raw suspicious message pasted inside quotation marks is still analyzed', () => {
+  const result = analyzeMessage('"Your account is locked. Send your OTP immediately."')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+  assert.ok(result.findings.every((finding) => finding.evidence))
+})
+
 test('negated sensitive information request is not treated as an instruction', () => {
   const result = analyzeMessage('Do not provide your password or verification code to anyone.')
 
   assert.equal(result.riskLevel, 'no-obvious-warning-signs')
   assert.ok(!result.findings.some((finding) => finding.id === 'credentials-request'))
+})
+
+test('a negation suppresses its instruction but not a later active OTP request', () => {
+  const result = analyzeMessage('Never share your OTP with strangers, but send your OTP to this support agent now.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+  assert.match(result.findings.find((finding) => finding.id === 'credentials-request')?.evidence ?? '', /send your OTP/i)
+})
+
+test('a negation about links does not suppress a separate OTP request', () => {
+  const result = analyzeMessage('Do not click suspicious links. Share your OTP with the support agent.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+})
+
+test('a negated link instruction does not suppress an active request in the same sentence', () => {
+  const result = analyzeMessage('Do not click the link, and send your OTP to this support agent.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+})
+
+test('educational warnings about gift-card code requests remain non-alarming', () => {
+  const result = analyzeMessage('Be careful of messages asking you to buy gift cards and send the codes.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(result.findings.length, 0)
 })
 
 test('a direct OTP request remains high concern alongside weak findings', () => {
