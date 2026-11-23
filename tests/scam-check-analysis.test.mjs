@@ -211,6 +211,130 @@ test('routine bank account notification is not elevated by account terminology a
   assert.equal(result.findings.length, 0)
 })
 
+test('a new-device account alert is informational and not high concern', () => {
+  const result = analyzeMessage('A new device login was detected for your account. If this was you, no action is needed.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'account-security-alert' && finding.strength === 'informational'))
+  assert.ok(!result.findings.some((finding) => finding.highConcernTrigger))
+})
+
+test('suspicious login, unauthorized activity, and account takeover wording is recognized as an alert', () => {
+  const examples = [
+    'A suspicious login attempt was detected for your account.',
+    'Unauthorized account activity was detected on your profile.',
+    'An account takeover was detected on your online banking profile.',
+  ]
+
+  for (const example of examples) {
+    const result = analyzeMessage(example)
+    assert.ok(result.findings.some((finding) => finding.id === 'account-security-alert'), example)
+    assert.notEqual(result.riskLevel, 'high-concern', example)
+  }
+})
+
+test('an account compromise followed by a linked recovery instruction is flagged without claiming verification', () => {
+  const result = analyzeMessage('Your account was compromised. Sign in to restore access at https://example.com/login.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'account-security-alert'))
+  assert.ok(result.findings.some((finding) => finding.id === 'account-security-link-combination'))
+  assert.match(result.findings.find((finding) => finding.id === 'account-security-link-combination')?.explanation ?? '', /cannot verify/i)
+})
+
+test('unauthorized account access followed by an OTP request remains high concern', () => {
+  const result = analyzeMessage('Unauthorized access to your account was detected. Share your OTP to block it.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'account-security-alert'))
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+})
+
+test('account numbers and IFSC codes without a request do not trigger findings', () => {
+  const result = analyzeMessage('My bank account number is 1234567890 and the IFSC code is ABCD0123456.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(result.findings.length, 0)
+})
+
+test('a request for an account number and IFSC through a link is a warning, not automatically high concern', () => {
+  const result = analyzeMessage('Submit your bank account number and IFSC code through https://example.com/verify.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'banking-identifier-request'))
+  assert.ok(!result.findings.some((finding) => finding.highConcernTrigger))
+})
+
+test('direct net-banking password requests retain high-concern treatment', () => {
+  const result = analyzeMessage('Share your net banking password with support to restore access.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request' && finding.highConcernTrigger === 'direct-authentication'))
+})
+
+test('KYC suspension threats paired with identity details and a link are high concern', () => {
+  const result = analyzeMessage('Your KYC will be suspended unless you submit your Aadhaar number at https://example.com/kyc.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'kyc-suspension-threat'))
+  assert.ok(result.findings.some((finding) => finding.id === 'personal-information-request'))
+  assert.ok(result.findings.some((finding) => finding.id === 'kyc-impersonation-combination'))
+})
+
+test('KYC app-install instructions are flagged for independent verification', () => {
+  const result = analyzeMessage('Install this app to complete your KYC verification.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'kyc-app-install-request'))
+  assert.ok(!result.findings.some((finding) => finding.highConcernTrigger))
+})
+
+test('a KYC suspension threat combined with an app link is high concern', () => {
+  const result = analyzeMessage('Your KYC will be suspended unless you install this app to verify your account at https://example.com/app.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'kyc-impersonation-combination'))
+})
+
+test('a transaction confirmation remains an ordinary notification', () => {
+  const result = analyzeMessage('Your card transaction of 500 rupees at the grocery store is complete.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(result.findings.length, 0)
+})
+
+test('scheduled maintenance without an action request is not high concern', () => {
+  const result = analyzeMessage('Online banking will be unavailable during scheduled maintenance tonight.')
+
+  assert.notEqual(result.riskLevel, 'high-concern')
+  assert.ok(!result.findings.some((finding) => finding.highConcernTrigger))
+})
+
+test('unrelated account-alert and banking-request sentences do not create high concern', () => {
+  const result = analyzeMessage('An unfamiliar login was detected yesterday. Separately, update banking information for payroll in the company app.')
+
+  assert.notEqual(result.riskLevel, 'high-concern')
+  assert.ok(!result.findings.some((finding) => finding.id === 'account-security-link-combination'))
+  assert.ok(!result.findings.some((finding) => finding.highConcernTrigger))
+})
+
+test('negated banking-identifier instructions remain suppressed', () => {
+  const result = analyzeMessage('Do not submit your IFSC code or Aadhaar number in response to an unexpected message.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'banking-identifier-request' || finding.id === 'personal-information-request'))
+})
+
+test('quoted KYC scam instructions remain educational while raw suspicious wording is checked', () => {
+  const education = analyzeMessage('Be careful of messages saying: “Your KYC will be suspended and submit your Aadhaar number.”')
+  const raw = analyzeMessage('“Your KYC will be suspended unless you submit your Aadhaar number at https://example.com/kyc.”')
+
+  assert.equal(education.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(education.findings.length, 0)
+  assert.equal(raw.riskLevel, 'high-concern')
+  assert.ok(raw.findings.some((finding) => finding.id === 'kyc-impersonation-combination'))
+})
+
 test('ordinary conversation with urgency and verification wording is not enough to trigger findings', () => {
   const result = analyzeMessage('I urgently need to verify the meeting time before we leave for dinner.')
 

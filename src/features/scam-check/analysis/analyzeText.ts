@@ -13,7 +13,7 @@ interface TextRule {
 
 const authenticationRequest: TextRule = {
   id: 'credentials-request',
-  pattern: /\b(?:send|share|reply with|provide|enter|confirm)\s+(?:your\s+)?(?:password|passcode|pin|one[- ]time code|verification code|security code|otp)\b|\b(?:password|passcode|one[- ]time code|verification code|security code|otp)\s+(?:is required|to unlock|to restore)\b/i,
+  pattern: /\b(?:send|share|reply with|provide|enter|confirm|submit)\s+(?:your\s+)?(?:(?:net|online)\s+banking\s+)?(?:password|passcode|pin|one[- ]time code|verification code|security code|otp|credentials?|login credentials?)\b|\b(?:password|passcode|one[- ]time code|verification code|security code|otp)\s+(?:is required|to unlock|to restore)\b/i,
   title: 'The message asks for a password or one-time code',
   explanation: 'A request to send a password, PIN, or one-time code can give someone access to an account.',
   strength: 'strong',
@@ -26,6 +26,14 @@ const accountThreat: TextRule = {
   title: 'The message threatens to block or suspend account access',
   explanation: 'Account warnings can be legitimate, but a threat should be checked through a contact method you already trust.',
   strength: 'weak',
+}
+
+const accountSecurityAlert: TextRule = {
+  id: 'account-security-alert',
+  pattern: /\baccount takeover\b|\bunauthori[sz]ed account activity\b|\b(?:account|profile|online banking)\b.{0,55}\b(?:compromis(?:ed|e)|unauthori[sz]ed (?:access|login|sign[ -]?in|activity)|taken over|takeover|suspicious|unusual|unfamiliar)\b|\b(?:compromis(?:ed|e)|unauthori[sz]ed (?:access|login|sign[ -]?in|activity)|taken over|suspicious|unusual|unfamiliar)\b.{0,55}\b(?:account|profile|login|sign[ -]?in|access|activity)\b|\b(?:suspicious|unusual|unfamiliar|new)\s+(?:login|sign[ -]?in|access attempt|account activity)\b|\b(?:login|sign[ -]?in)\b.{0,35}\b(?:from\s+a\s+)?new (?:device|location)\b|\bnew device\b.{0,30}\b(?:login|sign[ -]?in|access)\b/i,
+  title: 'The message reports unusual account access or activity',
+  explanation: 'Security alerts can be legitimate. This observation does not verify the alert or the sender; check account activity through the official app or a contact method you already trust.',
+  strength: 'informational',
 }
 
 const kycExpiration: TextRule = {
@@ -44,13 +52,39 @@ const bankingDetailsRequest: TextRule = {
   strength: 'weak',
 }
 
+const bankingIdentifierRequest: TextRule = {
+  id: 'banking-identifier-request',
+  pattern: /\b(?:send|share|provide|enter|submit|confirm|verify|update)\b.{0,45}\b(?:your\s+)?(?:bank\s+)?(?:account number|ifsc(?: code)?|routing number|banking customer id|net banking user(?:name| id))\b|\b(?:your\s+)?(?:bank\s+)?(?:account number|ifsc(?: code)?|routing number|banking customer id|net banking user(?:name| id))\b.{0,45}\b(?:send|share|provide|enter|submit|confirm|verify|update)\b/i,
+  title: 'The message asks you to provide a banking identifier',
+  explanation: 'Account numbers and bank transfer codes are not proof of fraud by themselves. An unexpected request to submit them should be checked through a known bank channel.',
+  strength: 'weak',
+}
+
 const personalInformationRequest: TextRule = {
   id: 'personal-information-request',
-  pattern: /\b(?:send|share|provide|enter|confirm|submit)\s+(?:your\s+)?(?:social security number|national id|identity number|date of birth|personal details|identity details)\b/i,
+  pattern: /\b(?:send|share|provide|enter|confirm|submit)\s+(?:your\s+)?(?:social security number|national id|identity number|date of birth|personal details|identity details|aadhaar(?: number)?|aadhar(?: number)?|pan(?: card)? number|tax id)\b/i,
   title: 'The message asks for sensitive personal details',
   explanation: 'Unexpected requests for identity information should be verified through a known official channel.',
   strength: 'weak',
 }
+
+const kycSuspensionThreat: TextRule = {
+  id: 'kyc-suspension-threat',
+  pattern: /\b(?:kyc|identity verification|customer verification)\b.{0,55}\b(?:suspend(?:ed|sion)?|block(?:ed)?|disable(?:d)?|restrict(?:ed|ion)?|deactivat(?:e|ed|ion))\b|\b(?:suspend|block|disable|restrict|deactivate)\b.{0,45}\b(?:your\s+)?(?:kyc|identity verification|account)\b/i,
+  title: 'The message threatens to suspend access over KYC verification',
+  explanation: 'KYC requests can be legitimate, but a suspension threat should be verified using a known bank channel before you act.',
+  strength: 'weak',
+}
+
+const kycAppInstallRequest: TextRule = {
+  id: 'kyc-app-install-request',
+  pattern: /\b(?:install|download)\b.{0,65}\b(?:app|application)\b.{0,65}\b(?:kyc|verify|verification|bank|account)\b|\b(?:kyc|verify|verification|bank|account)\b.{0,65}\b(?:install|download)\b.{0,65}\b(?:app|application)\b/i,
+  title: 'The message instructs you to install an app for account or KYC verification',
+  explanation: 'Unexpected app-install instructions can expose account or device information. Find the bank’s official app independently instead of following a message link.',
+  strength: 'weak',
+}
+
+const recoveryInstruction = /\b(?:sign[ -]?in|log[ -]?in|secure|restore|recover|unlock)\b.{0,55}\b(?:account|profile|banking|access)\b|\b(?:account|profile|banking|access)\b.{0,55}\b(?:sign[ -]?in|log[ -]?in|secure|restore|recover|unlock)\b/i
 
 const paymentRequest: TextRule = {
   id: 'payment-request',
@@ -84,9 +118,13 @@ const urlPattern = /(?:https?:\/\/|www\.)[^\s<>"']+/i
 
 const detectionRules = [
   authenticationRequest,
+  accountSecurityAlert,
   accountThreat,
   kycExpiration,
+  kycSuspensionThreat,
   bankingDetailsRequest,
+  bankingIdentifierRequest,
+  kycAppInstallRequest,
   personalInformationRequest,
   paymentRequest,
   giftCardPurchaseRequest,
@@ -143,6 +181,14 @@ function hasRelatedSignals(sentences: readonly string[], patterns: readonly RegE
     if (!nextSentence) return false
     const linked = /\b(?:because|therefore|so|otherwise|unless|as a result|to avoid|to prevent|if\s+.{1,40}\s+then)\b/i.test(`${sentence} ${nextSentence}`)
     return linked && patterns.every((pattern) => evidenceFor(sentence, pattern) || evidenceFor(nextSentence, pattern))
+  })
+}
+
+function hasAdjacentSignals(sentences: readonly string[], patterns: readonly RegExp[]): boolean {
+  return sentences.some((sentence, index) => {
+    const nextSentence = sentences[index + 1]
+    if (!nextSentence) return false
+    return patterns.every((pattern) => evidenceFor(sentence, pattern) || evidenceFor(nextSentence, pattern))
   })
 }
 
@@ -226,6 +272,39 @@ function addContextFindings(findings: Finding[], sentences: readonly string[], a
       strength: 'strong',
       highConcernTrigger: 'contextual-combination',
       evidence: evidence || activeText.slice(0, 160),
+    })
+  }
+
+  const accountSecurityLink = hasAdjacentSignals(activeSentences, [accountSecurityAlert.pattern, recoveryInstruction, urlPattern])
+    || hasAdjacentSignals(activeSentences, [accountSecurityAlert.pattern, bankingDetailsRequest.pattern, urlPattern])
+    || hasAdjacentSignals(activeSentences, [accountSecurityAlert.pattern, bankingIdentifierRequest.pattern, urlPattern])
+  if (accountSecurityLink && !findings.some((finding) => finding.id === 'account-security-link-combination')) {
+    const evidence = activeSentences.find((sentence) =>
+      evidenceFor(sentence, accountSecurityAlert.pattern) || evidenceFor(sentence, recoveryInstruction) || evidenceFor(sentence, urlPattern),
+    )
+    findings.push({
+      id: 'account-security-link-combination',
+      title: 'An account security alert is paired with an online action',
+      explanation: 'A security alert followed by a sign-in, recovery, or banking request through a message link deserves a separate check. The review cannot verify the sender or destination.',
+      strength: 'weak',
+      evidence: evidence?.slice(0, 160) || activeText.slice(0, 160),
+    })
+  }
+
+  const kycSensitiveRequest = hasRelatedSignals(activeSentences, [kycSuspensionThreat.pattern, personalInformationRequest.pattern, urlPattern])
+    || hasRelatedSignals(activeSentences, [kycSuspensionThreat.pattern, bankingIdentifierRequest.pattern, urlPattern])
+    || hasRelatedSignals(activeSentences, [kycSuspensionThreat.pattern, kycAppInstallRequest.pattern, urlPattern])
+  if (kycSensitiveRequest && !findings.some((finding) => finding.id === 'kyc-impersonation-combination')) {
+    const evidence = activeSentences.find((sentence) =>
+      evidenceFor(sentence, kycSuspensionThreat.pattern) || evidenceFor(sentence, personalInformationRequest.pattern) || evidenceFor(sentence, bankingIdentifierRequest.pattern) || evidenceFor(sentence, kycAppInstallRequest.pattern) || evidenceFor(sentence, urlPattern),
+    )
+    findings.push({
+      id: 'kyc-impersonation-combination',
+      title: 'A KYC suspension threat is paired with a linked information or app request',
+      explanation: 'A KYC threat combined with a link to submit sensitive details or install an app is a strong warning pattern. Verify through a contact method you already trust.',
+      strength: 'strong',
+      highConcernTrigger: 'contextual-combination',
+      evidence: evidence?.slice(0, 160) || activeText.slice(0, 160),
     })
   }
 
