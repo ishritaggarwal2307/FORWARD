@@ -147,6 +147,72 @@ test('prize processing fee request creates a high-concern combination', () => {
   assert.ok(result.findings.some((finding) => finding.id === 'prize-claim-payment-combination'))
 })
 
+test('a selected prize followed by registration and a release fee is high concern', () => {
+  const result = analyzeMessage('You have been selected for a prize draw. Register to claim it and pay a release fee.')
+  const finding = result.findings.find((item) => item.id === 'prize-claim-payment-combination')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.equal(finding?.strength, 'strong')
+  assert.equal(finding?.highConcernTrigger, 'contextual-combination')
+  assert.match(finding?.evidence ?? '', /selected for a prize draw/i)
+  assert.match(finding?.evidence ?? '', /pay a release fee/i)
+})
+
+test('a selected prize claim paired with a processing fee is high concern', () => {
+  const result = analyzeMessage('You were selected for a prize draw. Register to claim your reward and pay the processing fee.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'prize-claim-payment-combination' && /processing fee/i.test(finding.evidence ?? '')))
+})
+
+test('a prize additional-payment request is not mislabeled as a refund payment', () => {
+  const result = analyzeMessage('You have been selected for a prize draw. Register to claim your reward and send an additional payment to receive it.')
+  const prizeFinding = result.findings.filter((finding) => finding.id === 'prize-claim-payment-combination')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.equal(prizeFinding.length, 1)
+  assert.equal(prizeFinding[0]?.strength, 'strong')
+  assert.equal(prizeFinding[0]?.highConcernTrigger, 'contextual-combination')
+  assert.match(prizeFinding[0]?.evidence ?? '', /additional payment/i)
+  assert.ok(!result.findings.some((finding) => finding.id === 'refund-release-fee-request'))
+})
+
+test('an additional payment required to receive a selected prize is high concern', () => {
+  const result = analyzeMessage('You have been selected for a prize draw. Register to claim your reward and send an additional payment to receive it.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'prize-claim-payment-combination'))
+})
+
+test('a prize selection paired with banking details to receive the reward is high concern', () => {
+  const result = analyzeMessage('You have been selected for a prize draw. Register to claim it and update your banking information to receive the reward.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'prize-claim-payment-combination' && /banking information/i.test(finding.evidence ?? '')))
+})
+
+test('workplace raffles, event registration, and prize-scam education do not create a strong prize finding', () => {
+  const examples = [
+    'Our workplace raffle is open for the holiday party. Register to attend the event.',
+    'Register for the charity event and pay the standard entry fee at the venue.',
+    'Scam awareness: fraudsters may claim you won a prize and ask you to pay a release fee.',
+    'Join our summer prize draw. Register today for a chance to win a gift card.',
+  ]
+
+  for (const example of examples) {
+    const result = analyzeMessage(example)
+    assert.ok(!result.findings.some((finding) => finding.id === 'prize-claim-payment-combination'), example)
+    assert.notEqual(result.riskLevel, 'high-concern', example)
+  }
+})
+
+test('a prize selection does not combine with an unrelated fee in a separate message topic', () => {
+  const result = analyzeMessage('You have been selected for a prize draw. Separately, register for payroll and pay the annual service fee.')
+
+  assert.notEqual(result.riskLevel, 'high-concern')
+  assert.ok(!result.findings.some((finding) => finding.id === 'prize-claim-payment-combination'))
+})
+
 test('banking information requested to claim a prize is high concern', () => {
   const result = analyzeMessage('You won a prize. Update your banking information to receive your reward.')
 
@@ -189,10 +255,51 @@ test('account threat with an offline branch instruction does not become a strong
 test('routine account maintenance and a trusted-app update are not high concern', () => {
   const result = analyzeMessage('Your account will be temporarily locked for scheduled maintenance. Update your banking information in our secure app when service resumes.')
 
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'account-access-threat'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'banking-details-request'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'account-verification-combination'))
+})
+
+test('scheduled maintenance with a temporary account restriction is not a warning by itself', () => {
+  const result = analyzeMessage('Your account will be temporarily restricted during scheduled maintenance. Use our trusted banking app to update contact details after service resumes.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => ['account-access-threat', 'kyc-suspension-threat', 'banking-details-request'].includes(finding.id)))
+})
+
+test('maintenance wording does not suppress an unrelated account threat', () => {
+  const result = analyzeMessage('Scheduled bank maintenance is planned for Sunday. Separately, your account will be temporarily restricted next month.')
+
   assert.equal(result.riskLevel, 'some-warning-signs')
   assert.ok(result.findings.some((finding) => finding.id === 'account-access-threat'))
+})
+
+test('routine trusted-app maintenance wording does not suppress a fee request', () => {
+  const result = analyzeMessage('Your account will be temporarily restricted during scheduled maintenance. Pay a service fee to restore access through our trusted app.')
+
+  assert.notEqual(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'account-access-threat' || finding.id === 'kyc-suspension-threat'))
+})
+
+test('a maintenance service fee is identified without a refund-fee finding or high escalation', () => {
+  const result = analyzeMessage('Your account will be temporarily restricted during scheduled maintenance. Pay a service fee to restore access through our trusted app.')
+  const finding = result.findings.find((item) => item.id === 'maintenance-access-fee-request')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((item) => item.id === 'account-access-threat'))
+  assert.equal(finding?.strength, 'weak')
+  assert.match(finding?.evidence ?? '', /pay a service fee to restore access/i)
+  assert.ok(!result.findings.some((item) => item.id === 'refund-release-fee-request'))
+  assert.ok(!result.findings.some((item) => item.highConcernTrigger))
+})
+
+test('scheduled-maintenance language does not suppress urgent banking instructions', () => {
+  const result = analyzeMessage('Your account will be temporarily restricted during scheduled maintenance. Update your banking information immediately in our trusted app.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
   assert.ok(result.findings.some((finding) => finding.id === 'banking-details-request'))
-  assert.ok(!result.findings.some((finding) => finding.id === 'account-verification-combination'))
+  assert.ok(result.findings.some((finding) => finding.id === 'contextual-urgency'))
 })
 
 test('unrelated account-threat and banking-update sentences do not combine into high concern', () => {
@@ -301,6 +408,543 @@ test('a transaction confirmation remains an ordinary notification', () => {
 
   assert.equal(result.riskLevel, 'no-obvious-warning-signs')
   assert.equal(result.findings.length, 0)
+})
+
+test('a failed payment notice is informational without a requested action', () => {
+  const result = analyzeMessage('Your payment failed because the card was declined. No further action is needed.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'transaction-status-alert' && finding.strength === 'informational'))
+})
+
+test('an unauthorized transaction alert is informational by itself', () => {
+  const result = analyzeMessage('An unauthorized transaction of 500 rupees was reported on your account.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'transaction-status-alert' && finding.strength === 'informational'))
+  assert.ok(!result.findings.some((finding) => finding.highConcernTrigger))
+})
+
+test('a normal refund notification does not produce a warning', () => {
+  const result = analyzeMessage('Your refund has been processed and should arrive in 5 to 7 business days.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'refund-status-notification' && finding.strength === 'informational'))
+  assert.ok(!result.findings.some((finding) => finding.strength === 'weak' || finding.strength === 'strong'))
+})
+
+test('a request for a refund release fee is a contextual warning, not automatically high concern', () => {
+  const result = analyzeMessage('Pay a processing fee to release your refund.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'refund-release-fee-request' && finding.strength === 'strong'))
+  assert.ok(!result.findings.some((finding) => finding.highConcernTrigger))
+})
+
+test('an additional payment request to receive a refund is detected', () => {
+  const result = analyzeMessage('Send an additional payment to receive your refund.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'refund-release-fee-request'))
+})
+
+test('an additional transfer request to receive a refund is detected', () => {
+  const result = analyzeMessage('Make an additional transfer to receive your refund.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'refund-release-fee-request'))
+})
+
+test('an upfront fee to recover lost funds is detected as a payment recovery warning', () => {
+  const result = analyzeMessage('Pay an upfront fee and we will recover your lost funds.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'refund-release-fee-request'))
+})
+
+test('an OTP request to reverse a transaction is high concern and explained', () => {
+  const result = analyzeMessage('Share your OTP to reverse this transaction.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request' && finding.highConcernTrigger === 'direct-authentication'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'transaction-reversal-credential-request'))
+  assert.match(result.findings.find((finding) => finding.id === 'credentials-request')?.explanation ?? '', /transaction or refund/i)
+})
+
+test('an OTP reversal request written in reverse order is detected', () => {
+  const result = analyzeMessage('To cancel the payment, enter your verification code.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'transaction-reversal-credential-request'))
+})
+
+test('negated OTP advice about payment reversal remains non-alarming', () => {
+  const result = analyzeMessage('Never share your OTP to reverse a transaction.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'credentials-request' || finding.id === 'transaction-reversal-credential-request'))
+})
+
+test('educational payment recovery examples remain suppressed', () => {
+  const result = analyzeMessage('Scam awareness: fraudsters may ask you to pay an upfront fee to recover lost funds.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(result.findings.length, 0)
+})
+
+test('quoted suspicious refund instructions keep the existing quotation behavior', () => {
+  const educational = analyzeMessage('The suspicious text said: “Pay a fee to release your refund and share your OTP.”')
+  const raw = analyzeMessage('“Pay a fee to release your refund and share your OTP.”')
+
+  assert.equal(educational.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(educational.findings.length, 0)
+  assert.equal(raw.riskLevel, 'high-concern')
+  assert.ok(raw.findings.some((finding) => finding.id === 'refund-release-fee-request'))
+  assert.ok(raw.findings.some((finding) => finding.id === 'credentials-request'))
+})
+
+test('reported scam instructions with a semicolon inside quotation marks remain quoted', () => {
+  const result = analyzeMessage('The suspicious text said: “Pay a fee to release your refund; share your OTP.”')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(result.findings.length, 0)
+})
+
+test('reported scam instructions with periods inside quotation marks remain quoted', () => {
+  const result = analyzeMessage('The suspicious text said: “Pay a fee to release your refund. Share your OTP.”')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(result.findings.length, 0)
+})
+
+test('reported scam instructions with other punctuation and line breaks remain quoted', () => {
+  const result = analyzeMessage('The message reads: “Is a refund pending? Pay a fee;\nshare your OTP!”')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(result.findings.length, 0)
+})
+
+test('an active OTP instruction after a reported quotation remains actionable', () => {
+  const result = analyzeMessage('The text said: "Share your OTP." Please share your PIN now.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request' && /share your PIN/i.test(finding.evidence ?? '')))
+})
+
+test('periods inside reported quotations do not suppress a later active instruction', () => {
+  const result = analyzeMessage('A suspicious message read: “Your account is blocked. Share your OTP.” Now provide your PIN to support.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request' && /provide your PIN/i.test(finding.evidence ?? '')))
+})
+
+test('educational plural scam examples remain suppressed without suppressing a later request', () => {
+  const educational = analyzeMessage('Educational examples of refund scams: "Pay a fee; share OTP." Another scam example: "Transfer a deposit; send your PIN."')
+  const active = analyzeMessage('Educational examples of refund scams: "Pay a fee; share OTP." Please share your PIN now.')
+
+  assert.notEqual(educational.riskLevel, 'high-concern')
+  assert.ok(!educational.findings.some((finding) => finding.highConcernTrigger === 'direct-authentication'))
+  assert.equal(active.riskLevel, 'high-concern')
+})
+
+test('an unbalanced reported quotation does not suppress following active instructions', () => {
+  const result = analyzeMessage('The text said: “Share your OTP. Please provide your PIN now.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+})
+
+test('nested reported quotations stay educational while an outer active instruction is checked', () => {
+  const result = analyzeMessage('The message said: “They wrote, ‘Share your OTP.’” Please share your PIN now.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request' && /share your PIN/i.test(finding.evidence ?? '')))
+})
+
+test('single-quoted raw suspicious instructions remain analyzable', () => {
+  const result = analyzeMessage("'Share your OTP now.'")
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+})
+
+test('passive and transaction-directed authentication requests are high concern', () => {
+  const examples = [
+    'Your refund requires an OTP.',
+    'Your refund requires a password.',
+    'Cancel this transaction with your OTP.',
+    'Provide your net-banking credentials to support.',
+    'Your account requires your PIN to restore access.',
+    'Share your verification code to reverse the debit.',
+  ]
+
+  for (const example of examples) {
+    const result = analyzeMessage(example)
+    assert.equal(result.riskLevel, 'high-concern', example)
+    assert.ok(result.findings.some((finding) => finding.id === 'credentials-request' && finding.highConcernTrigger === 'direct-authentication'), example)
+  }
+})
+
+test('neutral authentication mentions without a request remain unflagged', () => {
+  const result = analyzeMessage('An OTP is a one-time password used by some services.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'credentials-request'))
+})
+
+test('negated passive authentication requirements do not trigger high concern', () => {
+  const result = analyzeMessage('Your refund does not require an OTP or password.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'credentials-request'))
+})
+
+test('transaction-related OTP and password phrases are not high concern without an active disclosure request', () => {
+  const examples = [
+    'Do not provide an OTP to cancel a debit.',
+    'A scam warning: scammers may say OTP to reverse a debit; never share it.',
+    'Avoid sharing your verification code to reverse a debit.',
+    'Never share your OTP to reverse a transaction.',
+    'Do not disclose your password to cancel a payment.',
+    'The guide mentions OTP to cancel a debit but does not ask anyone to share a code.',
+  ]
+
+  for (const example of examples) {
+    const result = analyzeMessage(example)
+    assert.notEqual(result.riskLevel, 'high-concern', example)
+    assert.ok(!result.findings.some((finding) => finding.id === 'credentials-request' && finding.highConcernTrigger === 'direct-authentication'), example)
+  }
+})
+
+test('real transaction credential disclosure requests remain high concern', () => {
+  const examples = [
+    'Share your OTP to reverse this transaction.',
+    'Provide your password to cancel the payment.',
+    'Enter your verification code to cancel this debit.',
+  ]
+
+  for (const example of examples) {
+    const result = analyzeMessage(example)
+    const finding = result.findings.find((item) => item.id === 'credentials-request')
+    assert.equal(result.riskLevel, 'high-concern', example)
+    assert.equal(finding?.strength, 'strong', example)
+    assert.equal(finding?.highConcernTrigger, 'direct-authentication', example)
+    assert.ok(finding?.evidence, example)
+  }
+})
+
+test('passive authentication requirements match consistently across whitespace', () => {
+  const examples = [
+    'Your refund requires an OTP.',
+    'Your refund requires an\nOTP.',
+    'Your refund requires an\r\nOTP.',
+    'Your refund requires an    OTP.',
+    'Your refund requires an\t OTP.',
+    'Your refund requires a password.',
+  ]
+
+  for (const example of examples) {
+    const result = analyzeMessage(example)
+    const finding = result.findings.find((item) => item.id === 'credentials-request')
+    assert.equal(result.riskLevel, 'high-concern', example)
+    assert.equal(finding?.strength, 'strong', example)
+    assert.equal(finding?.highConcernTrigger, 'direct-authentication', example)
+    assert.ok(finding?.evidence, example)
+  }
+})
+
+test('punctuation between a passive OTP requirement and the secret is accepted and preserved in evidence', () => {
+  const input = 'Your refund requires an: OTP!'
+  const result = analyzeMessage(input)
+  const finding = result.findings.find((item) => item.id === 'credentials-request')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.equal(finding?.strength, 'strong')
+  assert.equal(finding?.highConcernTrigger, 'direct-authentication')
+  assert.equal(finding?.evidence, 'refund requires an: OTP')
+})
+
+test('authentication evidence preserves original newline formatting', () => {
+  const input = 'Your refund requires an\nOTP.'
+  const result = analyzeMessage(input)
+  const finding = result.findings.find((item) => item.id === 'credentials-request')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.equal(finding?.evidence, 'refund requires an\nOTP')
+})
+
+test('authentication evidence preserves original CRLF formatting', () => {
+  const input = 'Your refund requires an\r\nOTP.'
+  const result = analyzeMessage(input)
+  const finding = result.findings.find((item) => item.id === 'credentials-request')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.equal(finding?.evidence, 'refund requires an\r\nOTP')
+})
+
+test('negation followed by an active credential request remains high concern', () => {
+  const result = analyzeMessage('Do not provide your OTP to anyone. Provide your OTP to support now.')
+  const finding = result.findings.find((item) => item.id === 'credentials-request')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.equal(finding?.evidence, 'Provide your OTP')
+})
+
+test('an active request followed by an educational warning retains only the active evidence', () => {
+  const result = analyzeMessage('Share your OTP now. Educational example: “Never share codes.”')
+  const finding = result.findings.find((item) => item.id === 'credentials-request')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.match(finding?.evidence ?? '', /Share your OTP/i)
+  assert.doesNotMatch(finding?.evidence ?? '', /Never share codes/i)
+})
+
+test('routine maintenance without pressure or sensitive requests is not flagged', () => {
+  const examples = [
+    'Online banking will be unavailable during scheduled maintenance tonight.',
+    'Your account will be temporarily restricted during scheduled maintenance. Use our trusted banking app to update your contact details after service resumes.',
+    'Scheduled bank maintenance is planned for Sunday. No action is required.',
+  ]
+
+  for (const example of examples) {
+    const result = analyzeMessage(example)
+    assert.equal(result.riskLevel, 'no-obvious-warning-signs', example)
+    assert.ok(!result.findings.some((finding) => finding.highConcernTrigger), example)
+  }
+})
+
+test('maintenance wording does not suppress OTP or password requests', () => {
+  const examples = [
+    'Scheduled maintenance will temporarily restrict your account. Use the trusted app and share your OTP to restore access.',
+    'Scheduled maintenance will temporarily restrict your account. Use the trusted app and provide your password when service resumes.',
+  ]
+
+  for (const example of examples) {
+    const result = analyzeMessage(example)
+    assert.equal(result.riskLevel, 'high-concern', example)
+    assert.ok(result.findings.some((finding) => finding.id === 'credentials-request' && finding.highConcernTrigger === 'direct-authentication'), example)
+  }
+})
+
+test('an external link in a maintenance notice is not hidden by the routine-message exception', () => {
+  const result = analyzeMessage('Scheduled maintenance will temporarily restrict your account. Update banking information at https://banking.example.net/restore.')
+
+  assert.notEqual(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'account-access-threat'))
+})
+
+test('account security combination evidence includes alert and follow-up action', () => {
+  const result = analyzeMessage('A suspicious login was detected on your account. Sign in to restore access at https://example.com/login.')
+  const finding = result.findings.find((item) => item.id === 'account-security-link-combination')
+
+  assert.ok(finding)
+  assert.match(finding.evidence ?? '', /suspicious login/i)
+  assert.match(finding.evidence ?? '', /https:\/\/example\.com\/login/i)
+})
+
+test('account compromise and linked recovery evidence includes destination', () => {
+  const result = analyzeMessage('Your account was compromised. Sign in at https://example.com/login to restore access.')
+  const finding = result.findings.find((item) => item.id === 'account-security-link-combination')
+
+  assert.ok(finding)
+  assert.match(finding.evidence ?? '', /account was compromised/i)
+  assert.match(finding.evidence ?? '', /https:\/\/example\.com\/login/i)
+})
+
+test('scheduled maintenance context does not escalate to high concern', () => {
+  const result = analyzeMessage('Your account may be temporarily restricted during scheduled maintenance. Update banking details in the trusted app after service resumes.')
+
+  assert.notEqual(result.riskLevel, 'high-concern')
+  assert.ok(!result.findings.some((finding) => finding.highConcernTrigger))
+})
+
+test('a raw OTP instruction inside outer quotation marks is still analyzed', () => {
+  const result = analyzeMessage('“Share your OTP to release this refund.”')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'transaction-reversal-credential-request'))
+})
+
+test('an educational refund-scam example with internal punctuation stays non-alarming', () => {
+  const result = analyzeMessage('Educational example of a refund scam: “Pay a release fee; share your OTP.”')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.equal(result.findings.length, 0)
+})
+
+test('a requested security deposit to recover funds is a warning, not high concern', () => {
+  const result = analyzeMessage('Transfer a security deposit to recover your funds.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'refund-release-fee-request'))
+  assert.ok(!result.findings.some((finding) => finding.highConcernTrigger))
+})
+
+test('a security deposit mention without a payment instruction is not flagged', () => {
+  const result = analyzeMessage('Our recovery policy describes a security deposit that is returned after settlement.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'refund-release-fee-request'))
+})
+
+test('a clearance charge to release money is a warning', () => {
+  const result = analyzeMessage('Your money is stuck. Pay a clearance charge to release it.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'refund-release-fee-request'))
+})
+
+test('a held parcel, re-delivery fee, short deadline, and HTTP link are explained together', () => {
+  const input = `DELIVERY NOTICE
+
+Your parcel is on hold because the delivery address could not be verified.
+
+Pay a small re-delivery fee of Rs. 25 within 2 hours to avoid return.
+
+Confirm your details and pay here:
+
+http://parcel-tracking-check.com/update
+
+Do not share this message with anyone.`
+  const result = analyzeMessage(input)
+  const fee = result.findings.find((finding) => finding.id === 'delivery-fee-request')
+  const combination = result.findings.find((finding) => finding.id === 'delivery-hold-payment-combination')
+  const urgency = result.findings.find((finding) => finding.id === 'contextual-urgency')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.equal(fee?.strength, 'weak')
+  assert.match(fee?.evidence ?? '', /pay a small re-delivery fee of Rs\. 25/i)
+  assert.equal(combination?.strength, 'weak')
+  assert.match(combination?.evidence ?? '', /parcel is on hold/i)
+  assert.match(combination?.evidence ?? '', /re-delivery fee/i)
+  assert.equal(urgency?.strength, 'weak')
+  assert.match(urgency?.evidence ?? '', /within 2 hours/i)
+  assert.ok(result.findings.some((finding) => finding.id === 'message-link-1-unencrypted-connection' && finding.strength === 'informational'))
+  assert.ok(!result.findings.some((finding) => finding.highConcernTrigger))
+})
+
+test('an explicit re-delivery fee request is detected without requiring an HTTP finding', () => {
+  const result = analyzeMessage('Pay a small re-delivery fee of Rs. 25 to receive your parcel.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'delivery-fee-request' && finding.strength === 'weak'))
+})
+
+test('delivery payment urgency is contextual and ordinary urgency alone is not enough', () => {
+  const delivery = analyzeMessage('Pay the delivery fee within 2 hours to receive your package.')
+  const ordinary = analyzeMessage('The team needs an urgent response within 2 hours about tomorrow’s meeting.')
+
+  assert.ok(delivery.findings.some((finding) => finding.id === 'delivery-fee-request'))
+  assert.ok(delivery.findings.some((finding) => finding.id === 'contextual-urgency' && finding.strength === 'weak'))
+  assert.ok(!ordinary.findings.some((finding) => finding.id === 'contextual-urgency'))
+  assert.equal(ordinary.riskLevel, 'no-obvious-warning-signs')
+})
+
+test('legitimate delivery status and fee notifications are not treated as payment requests', () => {
+  const examples = [
+    'Your parcel is on hold because the address could not be verified. Update it in the carrier app; no payment is required.',
+    'Your package is out for delivery today. The delivery fee was paid at checkout.',
+    'A re-delivery fee may apply. Review the carrier’s published policy or contact customer service using its official website.',
+  ]
+
+  for (const example of examples) {
+    const result = analyzeMessage(example)
+    assert.ok(!result.findings.some((finding) => finding.id === 'delivery-fee-request'), example)
+    assert.ok(!result.findings.some((finding) => finding.id === 'delivery-hold-payment-combination'), example)
+    assert.notEqual(result.riskLevel, 'high-concern', example)
+  }
+})
+
+test('parcel hold or return warnings alone do not create a delivery payment finding', () => {
+  const result = analyzeMessage('Your parcel is on hold until the delivery address is verified. It may be returned to sender.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'delivery-fee-request' || finding.id === 'delivery-hold-payment-combination'))
+})
+
+test('ordinary recovery policy discussion is not treated as a payment request', () => {
+  const result = analyzeMessage('Our recovery policy explains how funds are returned after a completed review.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'refund-release-fee-request'))
+})
+
+test('a refund blocked on payment verification is a warning, not a completed refund status', () => {
+  const result = analyzeMessage('Your refund cannot be processed until you complete payment verification.')
+
+  assert.equal(result.riskLevel, 'some-warning-signs')
+  assert.ok(result.findings.some((finding) => finding.id === 'refund-payment-verification-request' && finding.strength === 'weak'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'refund-status-notification'))
+  assert.ok(!result.findings.some((finding) => finding.highConcernTrigger))
+})
+
+test('refund pending is not reported as successfully processed', () => {
+  const result = analyzeMessage('Your refund is pending and is being reviewed.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'refund-status-notification'))
+})
+
+test('refund verification that requests an OTP is high concern with transaction context', () => {
+  const result = analyzeMessage('To release your refund, share your OTP to complete payment verification.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'transaction-reversal-credential-request'))
+})
+
+test('ordinary refund policy processing fees are not mistaken for a payment request', () => {
+  const result = analyzeMessage('Our refund policy includes a processing fee for returned goods.')
+
+  assert.equal(result.riskLevel, 'no-obvious-warning-signs')
+  assert.ok(!result.findings.some((finding) => finding.id === 'refund-release-fee-request'))
+})
+
+test('an OTP request to reverse a debit gets transaction-specific context', () => {
+  const result = analyzeMessage('Share your OTP to reverse this debit.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'transaction-reversal-credential-request'))
+})
+
+test('a password request to reverse a payment gets transaction-specific context', () => {
+  const result = analyzeMessage('Enter your password to reverse the payment.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'transaction-reversal-credential-request'))
+})
+
+test('a verification code request to cancel an unauthorized debit gets transaction context', () => {
+  const result = analyzeMessage('Share the verification code to cancel the unauthorized debit.')
+
+  assert.equal(result.riskLevel, 'high-concern')
+  assert.ok(result.findings.some((finding) => finding.id === 'credentials-request'))
+  assert.ok(!result.findings.some((finding) => finding.id === 'transaction-reversal-credential-request'))
+})
+
+test('negated OTP refund and reversal instructions remain non-alarming', () => {
+  const examples = [
+    'Never share your OTP to release a refund.',
+    'Do not enter your password to reverse a payment.',
+    'Avoid sharing your verification code to cancel an unauthorized debit.',
+  ]
+
+  for (const example of examples) {
+    const result = analyzeMessage(example)
+    assert.equal(result.riskLevel, 'no-obvious-warning-signs', example)
+    assert.ok(!result.findings.some((finding) => finding.id === 'credentials-request' || finding.id === 'transaction-reversal-credential-request'), example)
+  }
+})
+
+test('unrelated transaction and banking sentences do not combine into high concern', () => {
+  const result = analyzeMessage('Your payment failed yesterday. Separately, update banking information for payroll in the company app.')
+
+  assert.notEqual(result.riskLevel, 'high-concern')
+  assert.ok(!result.findings.some((finding) => finding.id === 'account-verification-combination' || finding.id === 'kyc-impersonation-combination'))
 })
 
 test('scheduled maintenance without an action request is not high concern', () => {

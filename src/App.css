@@ -93,7 +93,11 @@
 .experience-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .experience-card { min-width: 0; min-height: 440px; display: flex; flex-direction: column; padding: 20px; border: 1px solid #343944; background: #11141b; transition: border-color .2s ease, transform .2s ease; scroll-margin-top: 100px; }
 .experience-card:hover { border-color: #667044; transform: translateY(-3px); }
-.card-topline { display: flex; align-items: center; justify-content: space-between; color: #838a97; font: 9px var(--mono); letter-spacing: .08em; }
+.card-topline { display: flex; align-items: center; gap: 9px; color: #838a97; font: 9px var(--mono); letter-spacing: .08em; }
+.card-topline > span:first-child { margin-right: auto; }
+.status-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border: 1px solid #454c59; color: #b9bec8; font: 8px/1 var(--mono); letter-spacing: .04em; white-space: nowrap; }
+.status-available { border-color: rgba(197,244,81,.5); color: var(--lime); }
+.status-upcoming { color: #b2b7c1; }
 .card-mark { color: var(--lime); font-size: 19px; }
 .card-art { height: 150px; position: relative; display: grid; flex: 0 0 auto; place-items: center; overflow: hidden; margin: 18px -1px 20px; border: 1px solid #292e39; background-color: #0d1016; }
 .card-art::before, .card-art::after { position: absolute; inset: 0; background-image: linear-gradient(rgba(244,245,247,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(244,245,247,.04) 1px, transparent 1px); background-size: 24px 24px; content: ''; mask-image: linear-gradient(transparent, black, transparent); }

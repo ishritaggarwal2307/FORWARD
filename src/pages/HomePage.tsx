@@ -7,10 +7,12 @@ const experiences = [
     id: 'scam-check',
     number: '01',
     name: 'Scam Check',
+    status: 'Available now',
+    statusClass: 'status-available',
     title: 'A second look before you act.',
     description:
       'Bring a suspicious message or link into focus. Learn what to question before you respond.',
-    action: 'Check a suspicious message',
+    action: 'Open Scam Check',
     to: '/scam-check',
     className: 'experience-check',
     mark: '↗',
@@ -19,10 +21,12 @@ const experiences = [
     id: 'scam-arena',
     number: '02',
     name: 'Scam Arena',
+    status: 'Coming soon',
+    statusClass: 'status-upcoming',
     title: 'Practise spotting the signs.',
     description:
-      'Explore realistic situations and build confidence recognising the patterns scammers use.',
-    action: 'Explore Scam Arena',
+      'A planned set of realistic practice scenarios to help recognise common scam patterns.',
+    action: 'See what’s planned',
     to: '/scam-arena',
     className: 'experience-arena',
     mark: '◎',
@@ -31,10 +35,12 @@ const experiences = [
     id: 'family-shield',
     number: '03',
     name: 'Family Shield',
+    status: 'Coming soon',
+    statusClass: 'status-upcoming',
     title: 'Make safer habits a shared thing.',
     description:
-      'Find practical ways to talk about digital safety and help the people close to you stay alert.',
-    action: 'Explore Family Shield',
+      'A planned collection of practical ways to build safer digital habits with people close to you.',
+    action: 'See what’s planned',
     to: '/family-shield',
     className: 'experience-family',
     mark: '⌂',
@@ -105,14 +111,14 @@ function Experiences() {
       <div className="experience-grid">
         {experiences.map((experience) => (
           <article className={`experience-card ${experience.className}`} id={experience.id} key={experience.id}>
-            <div className="card-topline"><span>{experience.number} / EXPERIENCE</span><span className="card-mark" aria-hidden="true">{experience.mark}</span></div>
+            <div className="card-topline"><span>{experience.number} / EXPERIENCE</span><span className={`status-badge ${experience.statusClass}`}>{experience.status}</span><span className="card-mark" aria-hidden="true">{experience.mark}</span></div>
             <div className="card-art" aria-hidden="true"><span className="art-ring ring-one" /><span className="art-ring ring-two" /><span className="art-core">{experience.mark}</span><span className="art-label">{experience.name.toUpperCase()}</span></div>
             <div className="card-copy"><p className="card-kicker">{experience.name}</p><h3>{experience.title}</h3><p>{experience.description}</p></div>
             <Link className="card-link" to={experience.to}>{experience.action} <Arrow /></Link>
           </article>
         ))}
       </div>
-      <p className="coming-note"><span className="coming-dot" /> Scam Arena and Family Shield are in development.</p>
+      <p className="coming-note"><span className="coming-dot" /> Scam Arena and Family Shield are in development; Scam Check is available now.</p>
     </section>
   )
 }

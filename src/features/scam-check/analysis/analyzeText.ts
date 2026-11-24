@@ -13,7 +13,7 @@ interface TextRule {
 
 const authenticationRequest: TextRule = {
   id: 'credentials-request',
-  pattern: /\b(?:send|share|reply with|provide|enter|confirm|submit)\s+(?:your\s+)?(?:(?:net|online)\s+banking\s+)?(?:password|passcode|pin|one[- ]time code|verification code|security code|otp|credentials?|login credentials?)\b|\b(?:password|passcode|one[- ]time code|verification code|security code|otp)\s+(?:is required|to unlock|to restore)\b/i,
+  pattern: /\b(?:send|share|disclose|reply with|provide|enter|confirm|submit)\s+(?:(?:your|the|an?)\s+)?(?:(?:(?:net|online)[ -])?banking\s+)?(?:password|passcode|pin|one[- ]time code|verification code|security code|otp|credentials?|login credentials?)\b|\b(?:refund|account|transaction|payment|debit)\b[\s\S]{0,45}\b(?:requires?|needs?)\s*[:,-]?\s+(?:(?:your|an?)\s*[:,-]?\s*)?(?:otp|one[- ]time code|verification code|security code|password|passcode|pin)\b|\b(?:cancel|reverse|release|restore|unlock)\b[\s\S]{0,35}\b(?:this\s+)?(?:transaction|payment|debit|refund|account)\b[\s\S]{0,25}\bwith\s+(?:your\s+)?(?:otp|one[- ]time code|verification code|security code|password|passcode|pin)\b|\b(?:provide|send|share|disclose|enter|submit|confirm)\s+(?:your\s+)?(?:(?:(?:net|online)[ -])?banking\s+)?(?:credentials?|login credentials?)\s+(?:to|with|for)\b/i,
   title: 'The message asks for a password or one-time code',
   explanation: 'A request to send a password, PIN, or one-time code can give someone access to an account.',
   strength: 'strong',
@@ -94,6 +94,57 @@ const paymentRequest: TextRule = {
   strength: 'weak',
 }
 
+const deliveryFeeRequest: TextRule = {
+  id: 'delivery-fee-request',
+  pattern: /\b(?:pay|send|transfer|submit|provide)\b.{0,35}\b(?:(?:a|an|the|small|minor|nominal|additional|extra)\s+){0,3}(?:re[ -]?delivery|redelivery|delivery|shipping)\s+(?:fee|charge)\b(?:\s+of\s+(?:rs\.?\s*)?\d+(?:\.\d{1,2})?)?/i,
+  title: 'The message asks for a delivery or re-delivery payment',
+  explanation: 'A small delivery fee can be legitimate, but an unexpected payment request linked to a parcel hold or short deadline should be verified with the delivery service through a channel you find independently.',
+  strength: 'weak',
+}
+
+const deliveryHoldPattern = /\b(?:parcel|package|delivery|shipment)\b.{0,65}\b(?:on hold|held|could not be verified|cannot be verified|unverified|address.{0,20}(?:verify|verified|verification|confirm))\b|\b(?:on hold|held|could not be verified|cannot be verified|unverified)\b.{0,65}\b(?:parcel|package|delivery|shipment|address)\b/i
+const deliveryReturnThreatPattern = /\b(?:avoid|prevent)\s+(?:the\s+)?(?:parcel\s+)?return\b|\b(?:return|returned)\b.{0,30}\b(?:within|unless|if you do not|otherwise)\b/i
+
+const transactionStatusAlert: TextRule = {
+  id: 'transaction-status-alert',
+  pattern: /\b(?:unauthori[sz]ed|unrecognized|unfamiliar|failed|declined)\b.{0,45}\b(?:transaction|payment|charge|transfer)\b|\b(?:transaction|payment|charge|transfer)\b.{0,45}\b(?:unauthori[sz]ed|unrecognized|unfamiliar|failed|declined)\b/i,
+  title: 'The message reports a failed or unrecognized transaction',
+  explanation: 'Payment alerts can be genuine or mistaken. Check the transaction in your bank’s official app or through a contact method you already trust.',
+  strength: 'informational',
+}
+
+const refundStatusNotification: TextRule = {
+  id: 'refund-status-notification',
+  pattern: /\brefund\b.{0,35}\b(?:has been|was|is|will be)\s+(?:successfully\s+)?(?:processed|issued|sent|initiated|approved|completed|credited)\b|\b(?:successfully\s+)?(?:processed|issued|sent|initiated|approved|completed|credited)\s+(?:your\s+)?refund\b|\brefund\b.{0,35}\bon its way\b/i,
+  title: 'The message reports a refund status',
+  explanation: 'A refund status by itself is not a warning. Check it against the original purchase or the merchant’s official channel if it was unexpected.',
+  strength: 'informational',
+}
+
+const refundReleaseFeeRequest: TextRule = {
+  id: 'refund-release-fee-request',
+  pattern: /\b(?:pay|send|transfer|submit|provide|make)\b.{0,45}\b(?:(?:an?|the|additional|extra|upfront)\s+){0,2}(?:(?:processing|release|service|handling|recovery)\s+)?(?:fee|charge|payment|amount|money|funds|transfer|deposit|\$?\d+(?:\.\d{2})?)\b.{0,75}\b(?:refund|release|receive|recover|reversal|money back|funds)\b|\b(?:pay|send|transfer|submit|provide|make)\b.{0,45}\b(?:(?:your|an?)\s+)?security deposits?\b.{0,75}\b(?:refund|release|receive|recover|reversal|money back|funds)\b|\b(?:refund|reversal|recover(?:y|ing)?(?:\s+(?:your\s+)?(?:money|funds))?|money back|release (?:your\s+)?funds)\b.{0,65}\b(?:pay|send|transfer|submit|provide|make)\b.{0,45}\b(?:fee|charge|payment|amount|money|funds|transfer|deposit|security deposits?)\b/i,
+  title: 'The message asks for a payment to release or recover money',
+  explanation: 'A request to pay an added fee or amount to release a refund or recover funds deserves independent verification. Do not rely on contact details supplied in the message.',
+  strength: 'strong',
+}
+
+const transactionReversalCredentialRequest: TextRule = {
+  id: 'transaction-reversal-credential-request',
+  pattern: /\b(?:send|share|provide|enter|submit|confirm)\b.{0,35}\b(?:your\s+)?(?:otp|one[- ]time code|verification code|security code|password|passcode|pin)\b.{0,65}\b(?:reverse|reversal|cancel|undo|stop|release|recover|process)\b.{0,45}\b(?:unauthori[sz]ed\s+)?(?:transaction|payment|transfer|debit|refund)\b|\b(?:reverse|reversal|cancel|undo|stop|release|recover|process)\b.{0,45}\b(?:unauthori[sz]ed\s+)?(?:transaction|payment|transfer|debit|refund)\b.{0,75}\b(?:send|share|provide|enter|submit|confirm)\b.{0,35}\b(?:your\s+)?(?:otp|one[- ]time code|verification code|security code|password|passcode|pin)\b/i,
+  title: 'The message asks for an authentication detail to change a transaction or refund',
+  explanation: 'A one-time code, PIN, or password should not be shared to release a refund, reverse a transaction, or cancel a debit. Contact your bank through a known channel instead.',
+  strength: 'strong',
+}
+
+const refundPaymentVerificationRequest: TextRule = {
+  id: 'refund-payment-verification-request',
+  pattern: /\brefund\b.{0,65}\b(?:cannot|can not|will not|won't|unable to|not able to)\b.{0,45}\b(?:processed|issued|released|paid|completed)\b.{0,65}\b(?:complete|perform|finish|confirm|verify)\b.{0,35}\bpayment verification\b|\b(?:complete|perform|finish|confirm|verify)\b.{0,35}\bpayment verification\b.{0,65}\brefund\b/i,
+  title: 'The message says payment verification is needed for a refund',
+  explanation: 'A request to complete payment verification before a refund is processed should be checked through the merchant or bank using a known channel. This finding does not mean credentials were requested.',
+  strength: 'weak',
+}
+
 const giftCardPurchaseRequest: TextRule = {
   id: 'gift-card-purchase-request',
   pattern: /\b(?:please\s+)?(?:you\s+(?:need|must|should)\s+to\s+|i\s+need\s+you\s+to\s+|we\s+need\s+you\s+to\s+|can\s+you\s+|could\s+you\s+)?(?:buy|purchase|order|get|pick up)\b.{0,35}\bgift cards?\b/i,
@@ -108,7 +159,10 @@ const prizePattern = /\b(?:you(?:'|’)?ve|you have) won\b|\bclaim your (?:prize
 const prizeSelectionPattern = /\b(?:you have been|you(?:'|’)?ve been)\s+(?:selected|chosen)\s+(?:for|in)\s+(?:a\s+)?(?:prize draw|drawing|lottery|sweepstakes?|raffle)\b/i
 const prizeContextPattern = /\b(?:prize|lottery|sweepstakes?|raffle|winnings|reward)\b/i
 const prizeClaimActionPattern = /\b(?:register|claim|redeem|collect|receive|confirm|complete)\b/i
+const prizeClaimRelationPattern = /\b(?:claim|redeem|collect|receive|release)\b/i
 const prizeFeePattern = /\b(?:pay|send|transfer|cover|submit)\b.{0,35}\b(?:processing|administrative|admin|delivery|release|claim|tax)\s+fees?\b|\b(?:processing|administrative|admin|delivery|release|claim|tax)\s+fees?\b.{0,35}\b(?:prize|lottery|winnings|reward|draw)\b/i
+const prizeAdditionalPaymentPattern = /\b(?:pay|send|transfer|submit|make)\b.{0,35}\b(?:an?\s+)?(?:additional|extra|another)\s+(?:payment|amount|transfer)\b|\b(?:additional|extra|another)\s+(?:payment|amount|transfer)\b.{0,35}\b(?:claim|collect|receive|redeem|release)\b/i
+const maintenanceAccountFeePaymentPattern = /\b(?:pay|send|transfer|submit|provide)\b.{0,35}\b(?:a\s+|an\s+|the\s+)?(?:service|maintenance|restoration|reactivation)?\s*(?:fee|charge|payment)\b.{0,65}\b(?:restore|unlock|reactivate|recover|reinstate|access|account)\b/i
 const authorityPattern = /\b(?:your\s+)?(?:manager|boss|supervisor|director|executive|ceo|chief executive|owner|president)\b/i
 const giftCardMentionPattern = /\bgift cards?\b/i
 const giftCardValueRequestPattern = /\b(?:send|share|text|email|provide|give|forward|upload)\b.{0,65}\b(?:gift cards?|(?:redemption\s+)?codes?)\b|\bgift cards?\b.{0,45}\b(?:codes?|redemption codes?)\b/i
@@ -126,32 +180,149 @@ const detectionRules = [
   bankingIdentifierRequest,
   kycAppInstallRequest,
   personalInformationRequest,
+  transactionStatusAlert,
+  refundStatusNotification,
+  refundReleaseFeeRequest,
+  transactionReversalCredentialRequest,
+  refundPaymentVerificationRequest,
   paymentRequest,
+  deliveryFeeRequest,
   giftCardPurchaseRequest,
 ] satisfies readonly TextRule[]
 
-function splitSentences(text: string): string[] {
-  return text
-    .split(/(?:[.!?;]+\s+|\r?\n+|\s+\b(?:but|however|instead|yet)\b\s+)/iu)
-    .map((sentence) => sentence.trim().replace(/^[“"'‘]|[”"'’]$/gu, '').trim())
-    .filter(Boolean)
+function splitSentences(text: string, splitOnLineBreaks = true, splitOnColons = true): string[] {
+  const trimmed = maskReportedQuotes(text.trim())
+  const quoteClosers: Record<string, string> = { '"': '"', "'": "'", '“': '”', '‘': '’' }
+  const firstCharacter = trimmed[0]
+  if (firstCharacter && quoteClosers[firstCharacter] && trimmed.endsWith(quoteClosers[firstCharacter])) {
+    return splitSentences(trimmed.slice(1, -1))
+  }
+
+  const closingQuotes: string[] = []
+  const boundaries: Array<{ end: number; next: number }> = []
+  const isWordCharacter = (character: string | undefined) => Boolean(character && /[\p{L}\p{N}]/u.test(character))
+
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const character = trimmed[index] ?? ''
+    const previousCharacter = trimmed[index - 1]
+    const nextCharacter = trimmed[index + 1]
+
+    if (character === "'" && isWordCharacter(previousCharacter) && isWordCharacter(nextCharacter)) continue
+
+    if (closingQuotes.length > 0) {
+      if (character === closingQuotes[closingQuotes.length - 1]) {
+        closingQuotes.pop()
+      } else if (quoteClosers[character]) {
+        closingQuotes.push(quoteClosers[character])
+      }
+      continue
+    }
+
+    if (character === "'" && isWordCharacter(previousCharacter) && !isWordCharacter(nextCharacter)) continue
+
+    if (quoteClosers[character]) {
+      closingQuotes.push(quoteClosers[character])
+      continue
+    }
+
+    const isLineBreak = character === '\n' || character === '\r'
+    const continuesPassiveAuthentication = character === ':'
+      && /\b(?:requires?|needs?)\s+(?:your|an?)$/iu.test(trimmed.slice(Math.max(0, index - 24), index))
+      && /^\s*(?:otp|one[- ]time code|verification code|security code|password|passcode|pin)\b/iu.test(trimmed.slice(index + 1))
+    const isCurrencyAbbreviation = character === '.'
+      && /\brs$/iu.test(trimmed.slice(Math.max(0, index - 5), index))
+      && /^\s*\d/u.test(trimmed.slice(index + 1))
+    const isDelimiter = (/[.!?;]/u.test(character) && !isCurrencyAbbreviation)
+      || (splitOnColons && character === ':' && !continuesPassiveAuthentication)
+      || (splitOnLineBreaks && isLineBreak)
+    const endsAtBoundary = (splitOnLineBreaks && isLineBreak)
+      || index === trimmed.length - 1
+      || /\s/u.test(nextCharacter ?? '')
+    if (isDelimiter && endsAtBoundary) {
+      let nextIndex = index + 1
+      while (trimmed[nextIndex] === '\n' || trimmed[nextIndex] === '\r') nextIndex += 1
+      boundaries.push({ end: index, next: nextIndex })
+      index = nextIndex - 1
+      continue
+    }
+
+    const contrast = trimmed.slice(index).match(/^\s+(?:but|however|instead|yet)\b\s+/iu)
+    if (contrast) {
+      boundaries.push({ end: index, next: index + contrast[0].length })
+      index += contrast[0].length - 1
+    }
+  }
+
+  const sentences: string[] = []
+  let sentenceStart = 0
+  for (const boundary of boundaries) {
+    const sentence = trimmed.slice(sentenceStart, boundary.end).trim()
+    if (sentence) sentences.push(sentence)
+    sentenceStart = boundary.next
+  }
+  const finalSentence = trimmed.slice(sentenceStart).trim()
+  if (finalSentence) sentences.push(finalSentence)
+
+  return sentences.map((sentence) => sentence.trim()).filter(Boolean)
+}
+
+/** Masks only quotations introduced as reported or educational examples.
+ * Raw quoted content remains analyzable. An unmatched opening quote is left
+ * untouched so malformed input cannot hide the remainder of the message.
+ */
+function maskReportedQuotes(text: string): string {
+  const quoteClosers: Record<string, string> = { '"': '"', "'": "'", '“': '”', '‘': '’' }
+  const characters = text.split('')
+  const isWordCharacter = (character: string | undefined) => Boolean(character && /[\p{L}\p{N}]/u.test(character))
+
+  for (let index = 0; index < characters.length; index += 1) {
+    const opening = characters[index] ?? ''
+    if (!quoteClosers[opening]) continue
+    if (opening === "'" && isWordCharacter(characters[index - 1]) && isWordCharacter(characters[index + 1])) continue
+    if (opening === "'" && isWordCharacter(characters[index - 1]) && !isWordCharacter(characters[index + 1])) continue
+
+    const closing = quoteClosers[opening]
+    const stack = [closing]
+    let end = index + 1
+    for (; end < characters.length && stack.length > 0; end += 1) {
+      const current = characters[end] ?? ''
+      if (current === "'" && isWordCharacter(characters[end - 1]) && isWordCharacter(characters[end + 1])) continue
+      if (current === stack[stack.length - 1]) stack.pop()
+      else if (quoteClosers[current]) stack.push(quoteClosers[current] ?? current)
+    }
+    if (stack.length > 0) continue
+
+    const prefix = text.slice(0, index)
+    const introducedAsReported = /\b(?:said|says|reads|read|wrote|writes)\s*:\s*$/iu.test(prefix)
+    const introducedAsExample = /\b(?:educational\s+examples?(?:\s+of\s+(?:a\s+)?(?:refund\s+)?(?:scams?|phishing|fraud))?|examples?\s+of\s+(?:a\s+)?(?:scam|phishing|fraud)|(?:scam|phishing|fraud)\s+awareness|warning\s+about\s+(?:scams?|phishing|fraud)|another\s+(?:scam\s+)?example)\s*:\s*$/iu.test(prefix)
+      || /\b(?:be careful|beware|watch out)\s+of\s+(?:these\s+)?(?:scam\s+)?(?:messages|texts|emails)(?:\s+(?:saying|asking|that say|which say))?\s*:\s*$/iu.test(prefix)
+      || /\b(?:scammers?|fraudsters?)\s+(?:may|might|often|will)\s+ask\s*:\s*$/iu.test(prefix)
+    const suffixEnd = [text.indexOf('.', end), text.indexOf('!', end), text.indexOf('?', end), text.indexOf(';', end), text.indexOf('\n', end)].filter((position) => position >= 0)
+    const suffix = text.slice(end, suffixEnd.length ? Math.min(...suffixEnd) : text.length)
+    const reportedDiscussion = /\b(?:looks? suspicious|is suspicious|is an example|is a scam|is phishing|was a scam|is being discussed)\s*:\s*$/iu.test(prefix)
+      || (/\b(?:the|this)\s+(?:text|message|email)\s*$/iu.test(prefix) && /^\s*(?:looks? suspicious|is suspicious|is a scam|is phishing)\b/iu.test(suffix))
+    if (!introducedAsReported && !introducedAsExample && !reportedDiscussion) {
+      index = end - 1
+      continue
+    }
+
+    for (let cursor = index; cursor < end; cursor += 1) characters[cursor] = ' '
+    index = end - 1
+  }
+  return characters.join('')
 }
 
 function isSafetyOrEducationalContext(sentence: string): boolean {
-  const trimmed = sentence.trim()
-  const isReportedQuote = /\b(?:said|says|reads|read)\s*:\s*[“"'‘]/iu.test(trimmed)
-  const isQuotedDiscussion = /[“"'‘][^”"'’]+[”"'’]/u.test(trimmed)
-    && /\b(?:looks? suspicious|is suspicious|is an example|is a scam|is phishing|was a scam|is being discussed)\b/i.test(trimmed)
-  return isReportedQuote
-    || isQuotedDiscussion
-    || /\b(?:be careful|beware|watch out)\s+of\s+(?:these\s+)?(?:scam\s+)?(?:messages|texts|emails)\b/i.test(sentence)
-    || /\b(?:example\s+(?:of\s+(?:a\s+)?)?(?:scam|phishing|fraud)|(?:scam|phishing|fraud)\s+awareness|educational\s+(?:example|warning)|warning\s+about\s+(?:scams?|phishing|fraud))\b/i.test(sentence)
-    || /\b(?:scammers?|fraudsters?)\s+(?:may|might|often|will)\s+ask\b/i.test(sentence)
+  return /\b(?:be careful|beware|watch out)\s+of\s+(?:these\s+)?(?:scam\s+)?(?:messages|texts|emails)(?:\s+(?:saying|asking|that say|which say))?\b/i.test(sentence)
+    || /\b(?:example\s+(?:of\s+(?:a\s+)?)?(?:scam|phishing|fraud)|(?:scam|phishing|fraud)\s+awareness|educational\s+(?:examples?|warnings?)(?:\s+of\s+(?:a\s+)?(?:refund\s+)?(?:scams?|phishing|fraud))?|(?:scam|phishing|fraud)\s+examples?|warning\s+about\s+(?:scams?|phishing|fraud))\b/i.test(sentence)
+    || /\b(?:scammers?|fraudsters?)\s+(?:may|might|often|will)\s+(?:ask|say|claim|promise|tell(?:\s+you)?)\b/i.test(sentence)
 }
 
 function hasNearbyNegation(sentence: string, matchIndex: number): boolean {
   const precedingText = sentence.slice(Math.max(0, matchIndex - 32), matchIndex)
   return /\b(?:never|don't|do not|shouldn't|should not|must not|avoid|not to|won't|will not|is not|isn't|not be)\s+(?:(?:you|we|they)\s+)?(?:please\s+)?$/i.test(precedingText)
+    || /\b(?:avoid|never|don't|do not|shouldn't|should not|must not)\s+(?:sharing|sending|providing|entering|submitting|confirming)\s+(?:your\s+)?$/i.test(precedingText)
+    || /\b(?:does not|doesn't|do not|don't|never)\s+(?:require|requires|need|needs|request|requests)\b.{0,18}$/i.test(precedingText)
 }
 
 function isIndependentOfflineInstruction(sentence: string): boolean {
@@ -167,8 +338,14 @@ function isIndependentOfflineInstruction(sentence: string): boolean {
 function evidenceFor(sentence: string, pattern: RegExp): string | undefined {
   if (pattern === bankingDetailsRequest.pattern && isIndependentOfflineInstruction(sentence)) return undefined
   const globalPattern = new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`)
-  for (const match of sentence.matchAll(globalPattern)) {
-    if (match.index !== undefined && !hasNearbyNegation(sentence, match.index)) return match[0]
+  const matchingText = sentence.replace(/[\r\n\u2028\u2029]/gu, ' ')
+  for (const match of matchingText.matchAll(globalPattern)) {
+    if (match.index === undefined || hasNearbyNegation(matchingText, match.index)) continue
+    if (pattern === authenticationRequest.pattern) {
+      const secretOffset = match[0].search(/\b(?:otp|one[- ]time code|verification code|security code|password|passcode|pin|credentials?)\b/i)
+      if (secretOffset >= 0 && hasNearbyNegation(matchingText, match.index + secretOffset)) continue
+    }
+    return sentence.slice(match.index, match.index + match[0].length)
   }
   return undefined
 }
@@ -192,15 +369,89 @@ function hasAdjacentSignals(sentences: readonly string[], patterns: readonly Reg
   })
 }
 
-function addRuleFindings(findings: Finding[], sentences: readonly string[]) {
-  for (const sentence of sentences) {
-    if (isSafetyOrEducationalContext(sentence)) continue
-    for (const rule of detectionRules) {
-      if (findings.some((finding) => finding.id === rule.id)) continue
+function prizeRequestEvidence(sentences: readonly string[], requestPattern: RegExp): string | undefined {
+  for (let index = 0; index < sentences.length; index += 1) {
+    const sentence = sentences[index] ?? ''
+    if (!evidenceFor(sentence, requestPattern) || !evidenceFor(sentence, prizeClaimRelationPattern)) continue
+
+    const currentAwardContext = evidenceFor(sentence, prizeSelectionPattern)
+      || evidenceFor(sentence, prizePattern)
+      || evidenceFor(sentence, prizeContextPattern)
+    const previousSentence = sentences[index - 1]
+    const previousAwardContext = previousSentence
+      && (evidenceFor(previousSentence, prizeSelectionPattern) || evidenceFor(previousSentence, prizePattern))
+    if (!currentAwardContext && !previousAwardContext) continue
+
+    return [previousAwardContext ? previousSentence : undefined, sentence].filter(Boolean).join(' · ')
+  }
+  return undefined
+}
+
+function routineMaintenanceWindow(sentence: string, sentences: readonly string[]): string {
+  const index = sentences.indexOf(sentence)
+  return [sentences[index - 1], sentence, sentences[index + 1]].filter(Boolean).join(' ')
+}
+
+function addRuleFindings(findings: Finding[], sentences: readonly string[], authenticationSentences: readonly string[]) {
+  const activeSentences = sentences.filter((sentence) => !isSafetyOrEducationalContext(sentence))
+  const hasAuthenticationRequest = authenticationSentences.some((sentence) =>
+    !isSafetyOrEducationalContext(sentence) && evidenceFor(sentence, authenticationRequest.pattern),
+  )
+  const prizePaymentEvidence = prizeRequestEvidence(activeSentences, prizeFeePattern)
+    ?? prizeRequestEvidence(activeSentences, prizeAdditionalPaymentPattern)
+    ?? prizeRequestEvidence(activeSentences, bankingDetailsRequest.pattern)
+
+  for (const rule of detectionRules) {
+    if (findings.some((finding) => finding.id === rule.id)) continue
+    const candidates = rule.id === authenticationRequest.id ? authenticationSentences : activeSentences
+    for (const sentence of candidates) {
+      if (isSafetyOrEducationalContext(sentence)) continue
       const evidence = evidenceFor(sentence, rule.pattern)
-      if (evidence) {
-        findings.push({ ...rule, evidence })
-      }
+      if (!evidence) continue
+      if (rule.id === refundReleaseFeeRequest.id
+        && prizePaymentEvidence?.includes(sentence)
+        && (evidenceFor(sentence, prizeFeePattern) || evidenceFor(sentence, prizeAdditionalPaymentPattern))) continue
+
+      const maintenanceWindow = routineMaintenanceWindow(sentence, activeSentences)
+      const scheduledMaintenance = /\b(?:scheduled|planned|routine)\s+(?:bank(?:ing)?\s+)?maintenance\b/i.test(maintenanceWindow)
+      const temporaryRestriction = /\btemporar(?:y|ily)\b.{0,35}\b(?:restrict(?:ed|ion)?|lock(?:ed)?|block(?:ed)?|suspend(?:ed|sion)?)\b/i.test(maintenanceWindow)
+      const trustedApp = /\b(?:trusted|official|secure)\s+(?:(?:bank|banking)\s+)?(?:app|application)\b|\b(?:bank's|banks')\s+(?:official\s+)?app\b|\b(?:banking|bank)\s+(?:app|application)\s+(?:we|you)\s+already\s+trust\b/i.test(maintenanceWindow)
+      const hasExternalLink = urlPattern.test(maintenanceWindow)
+      const hasUrgency = Boolean(evidenceFor(maintenanceWindow, urgencyPattern))
+      const hasPaymentRequest = Boolean(evidenceFor(maintenanceWindow, paymentRequest.pattern)
+        || evidenceFor(maintenanceWindow, refundReleaseFeeRequest.pattern)
+        || evidenceFor(maintenanceWindow, prizeFeePattern)
+        || /\b(?:pay|send|transfer|submit|provide)\b.{0,45}\b(?:fee|charge|payment|deposit|amount)\b/i.test(maintenanceWindow))
+      const routineMaintenance = scheduledMaintenance && !hasExternalLink && !hasUrgency && !hasAuthenticationRequest && !hasPaymentRequest
+      const restrictionIsPartOfMaintenance = /\b(?:scheduled|planned|routine)\s+(?:bank(?:ing)?\s+)?maintenance\b/i.test(sentence)
+        && /\btemporar(?:y|ily)\b.{0,35}\b(?:restrict(?:ed|ion)?|lock(?:ed)?|block(?:ed)?|suspend(?:ed|sion)?)\b/i.test(sentence)
+      const updateIsLinkedToMaintenance = /\b(?:during|after|when|once)\s+(?:the\s+)?(?:scheduled\s+)?maintenance\b|\b(?:after|when|once)\s+service\s+resumes\b/i.test(sentence)
+
+      if ((rule.id === accountThreat.id || rule.id === kycSuspensionThreat.id)
+        && restrictionIsPartOfMaintenance && routineMaintenance) continue
+      if (rule.id === bankingDetailsRequest.id && trustedApp && updateIsLinkedToMaintenance && routineMaintenance && (temporaryRestriction || restrictionIsPartOfMaintenance)) continue
+
+      findings.push({ ...rule, evidence })
+      break
+    }
+  }
+
+  if (!findings.some((finding) => finding.id === 'maintenance-access-fee-request')) {
+    for (const sentence of activeSentences) {
+      const maintenanceWindow = routineMaintenanceWindow(sentence, activeSentences)
+      const hasScheduledRestriction = /\b(?:scheduled|planned|routine)\s+(?:bank(?:ing)?\s+)?maintenance\b/i.test(maintenanceWindow)
+        && /\btemporar(?:y|ily)\b.{0,35}\b(?:restrict(?:ed|ion)?|lock(?:ed)?|block(?:ed)?|suspend(?:ed|sion)?)\b/i.test(maintenanceWindow)
+      const evidence = hasScheduledRestriction ? evidenceFor(maintenanceWindow, maintenanceAccountFeePaymentPattern) : undefined
+      if (!evidence) continue
+
+      findings.push({
+        id: 'maintenance-access-fee-request',
+        title: 'The message asks for a fee to restore account access',
+        explanation: 'A fee request linked to restoring account access deserves an independent check, even when the message describes scheduled maintenance.',
+        strength: 'weak',
+        evidence,
+      })
+      break
     }
   }
 }
@@ -236,16 +487,37 @@ function addContextFindings(findings: Finding[], sentences: readonly string[], a
       || evidenceFor(sentence, personalInformationRequest.pattern)
       || evidenceFor(sentence, authenticationRequest.pattern)
       || evidenceFor(sentence, giftCardRequestPattern)
+      || evidenceFor(sentence, deliveryFeeRequest.pattern)
       || (urlPattern.test(sentence) && evidenceFor(sentence, verificationRequest))
   })
 
   if (urgencySentence && !findings.some((finding) => finding.id === 'contextual-urgency')) {
     findings.push({
       id: 'contextual-urgency',
-      title: 'Time pressure is paired with an account or information request',
-      explanation: 'Urgency is more concerning when a message also threatens account access or asks you to verify, update, or share details.',
+      title: 'Time pressure is paired with a request for action',
+      explanation: 'A short deadline deserves closer attention when paired with an account, information, payment, or delivery request.',
       strength: 'weak',
       evidence: evidenceFor(urgencySentence, urgencyPattern),
+    })
+  }
+
+  const deliveryPaymentIndex = activeSentences.findIndex((sentence, index) => {
+    const nearby = [activeSentences[index - 1], sentence, activeSentences[index + 1]].filter(Boolean).join(' ')
+    return evidenceFor(sentence, deliveryFeeRequest.pattern)
+      && (evidenceFor(nearby, deliveryHoldPattern) || evidenceFor(nearby, deliveryReturnThreatPattern))
+  })
+  if (deliveryPaymentIndex >= 0 && !findings.some((finding) => finding.id === 'delivery-hold-payment-combination')) {
+    const evidence = [activeSentences[deliveryPaymentIndex - 1], activeSentences[deliveryPaymentIndex], activeSentences[deliveryPaymentIndex + 1]]
+      .filter((sentence): sentence is string => Boolean(sentence))
+      .filter((sentence) => evidenceFor(sentence, deliveryFeeRequest.pattern) || evidenceFor(sentence, deliveryHoldPattern) || evidenceFor(sentence, deliveryReturnThreatPattern))
+      .slice(0, 2)
+      .join(' · ')
+    findings.push({
+      id: 'delivery-hold-payment-combination',
+      title: 'A parcel warning is paired with a delivery payment request',
+      explanation: 'A parcel hold or return warning combined with a request for a delivery payment should be verified with the carrier through contact details you find independently.',
+      strength: 'weak',
+      evidence,
     })
   }
 
@@ -279,15 +551,21 @@ function addContextFindings(findings: Finding[], sentences: readonly string[], a
     || hasAdjacentSignals(activeSentences, [accountSecurityAlert.pattern, bankingDetailsRequest.pattern, urlPattern])
     || hasAdjacentSignals(activeSentences, [accountSecurityAlert.pattern, bankingIdentifierRequest.pattern, urlPattern])
   if (accountSecurityLink && !findings.some((finding) => finding.id === 'account-security-link-combination')) {
-    const evidence = activeSentences.find((sentence) =>
-      evidenceFor(sentence, accountSecurityAlert.pattern) || evidenceFor(sentence, recoveryInstruction) || evidenceFor(sentence, urlPattern),
-    )
+    const evidence = activeSentences
+      .filter((sentence, index) => {
+        const adjacent = [sentence, activeSentences[index + 1]].filter(Boolean).join(' ')
+        return evidenceFor(adjacent, accountSecurityAlert.pattern)
+          || evidenceFor(adjacent, recoveryInstruction)
+          || evidenceFor(adjacent, urlPattern)
+      })
+      .slice(0, 2)
+      .join(' · ')
     findings.push({
       id: 'account-security-link-combination',
       title: 'An account security alert is paired with an online action',
       explanation: 'A security alert followed by a sign-in, recovery, or banking request through a message link deserves a separate check. The review cannot verify the sender or destination.',
       strength: 'weak',
-      evidence: evidence?.slice(0, 160) || activeText.slice(0, 160),
+      evidence: evidence.slice(0, 240) || activeText.slice(0, 160),
     })
   }
 
@@ -360,8 +638,11 @@ function addContextFindings(findings: Finding[], sentences: readonly string[], a
     })
   }
 
-  const prizeFeeCombination = hasRelatedSignals(activeSentences, [prizeContextPattern, prizeFeePattern])
-  const prizeBankingCombination = hasRelatedSignals(activeSentences, [prizeContextPattern, bankingDetailsRequest.pattern])
+  const prizeFeeEvidence = prizeRequestEvidence(activeSentences, prizeFeePattern)
+    ?? prizeRequestEvidence(activeSentences, prizeAdditionalPaymentPattern)
+  const prizeBankingEvidence = prizeRequestEvidence(activeSentences, bankingDetailsRequest.pattern)
+  const prizeFeeCombination = Boolean(prizeFeeEvidence)
+  const prizeBankingCombination = Boolean(prizeBankingEvidence)
   if ((prizeFeeCombination || prizeBankingCombination) && !findings.some((finding) => finding.id === 'prize-claim-payment-combination')) {
     findings.push({
       id: 'prize-claim-payment-combination',
@@ -371,7 +652,7 @@ function addContextFindings(findings: Finding[], sentences: readonly string[], a
       explanation: 'Requests for a fee or banking details to release a prize deserve independent verification. This pattern alone does not verify who sent the message.',
       strength: 'strong',
       highConcernTrigger: 'contextual-combination',
-      evidence: activeText.slice(0, 180),
+      evidence: (prizeFeeEvidence ?? prizeBankingEvidence)?.slice(0, 240) || activeText.slice(0, 160),
     })
   }
 
@@ -440,10 +721,17 @@ export function analyzeMessage(text: string): AnalysisResult {
   }
 
   const sentences = splitSentences(normalized)
+  const authenticationSentences = splitSentences(normalized, false, true)
   const activeText = sentences.filter((sentence) => !isSafetyOrEducationalContext(sentence)).join(' ')
   const findings: Finding[] = []
 
-  addRuleFindings(findings, sentences)
+  addRuleFindings(findings, sentences, authenticationSentences)
+  const credentialFinding = findings.find((finding) => finding.id === authenticationRequest.id)
+  const transactionCredentialFinding = findings.find((finding) => finding.id === transactionReversalCredentialRequest.id)
+  if (credentialFinding && transactionCredentialFinding) {
+    credentialFinding.explanation = 'The message asks for an authentication secret in connection with a transaction or refund. Never share a one-time code, PIN, or password to reverse, release, or cancel a payment; contact your bank through a known channel.'
+    findings.splice(findings.indexOf(transactionCredentialFinding), 1)
+  }
   addContextFindings(findings, sentences, activeText)
 
   const urls = activeText.match(/(?:https?:\/\/|www\.)[^\s<>"']+/gi) ?? []
